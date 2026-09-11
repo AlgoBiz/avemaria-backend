@@ -3,34 +3,43 @@ from django.http import HttpResponse
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
 from apps.enquiries.models import Enquiry
 from .serializers import EnquiryCreateSerializer, EnquiryAdminSerializer
 
 class EnquiryViewSet(viewsets.ModelViewSet):
     queryset = Enquiry.objects.filter(is_deleted=False)
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status']
     search_fields = ['candidate_name', 'email', 'topic', 'message']
     ordering_fields = ['created_at', 'status']
     ordering = ['-created_at', '-id']
 
-
     def get_serializer_class(self):
-        if self.action in ['create', 'create_enquiry'] and not (self.request.user and self.request.user.is_authenticated):
+        if self.action in ['create', 'create_enquiry', 'contact_enquiry', 'submit_enquiry']:
             return EnquiryCreateSerializer
         return EnquiryAdminSerializer
 
     def get_permissions(self):
-        if self.action in ['create', 'create_enquiry', 'export_csv', 'export_csv_hyphen']:
+        if self.action in ['create', 'create_enquiry', 'contact_enquiry', 'submit_enquiry', 'export_csv', 'export_csv_hyphen']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
     @action(detail=False, methods=['post'], url_path='create', permission_classes=[permissions.AllowAny])
     def create_enquiry(self, request, *args, **kwargs):
-        """Public endpoint to submit admissions enquiry at /api/v1/enquiries/create/
-        Incoming enquiries automatically default to status 'new' (New Lead).
-        """
+        """Public endpoint to submit admissions enquiry at /api/v1/enquiries/create/"""
+        return self.create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='contact', permission_classes=[permissions.AllowAny])
+    def contact_enquiry(self, request, *args, **kwargs):
+        """Public endpoint to submit contact enquiry at /api/v1/enquiries/contact/"""
+        return self.create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='submit', permission_classes=[permissions.AllowAny])
+    def submit_enquiry(self, request, *args, **kwargs):
+        """Public endpoint to submit enquiry at /api/v1/enquiries/submit/"""
         return self.create(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
