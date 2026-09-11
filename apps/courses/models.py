@@ -11,15 +11,22 @@ class Course(BaseModel):
         ('Advanced', 'Advanced Level'),
     )
 
+    LEARNING_MODE_CHOICES = (
+        ('live online', 'Live online'),
+        ('recorded', 'Recorded'),
+        ('live online+recorded', 'Live online+recorded'),
+    )
+
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
+    overview_description = models.TextField(blank=True, default='', help_text="Course overview description below course name")
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='courses')
     summary = models.TextField(help_text="Course summary and introduction")
     duration = models.CharField(max_length=100, default="16 weeks")
     level = models.CharField(max_length=50, choices=LEVEL_CHOICES, default='Advanced')
     fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     currency = models.CharField(max_length=10, default='£')
-    learning_mode = models.CharField(max_length=120, default='Live online + recorded')
+    learning_mode = models.CharField(max_length=50, choices=LEARNING_MODE_CHOICES, default='live online+recorded')
     cover_image = models.ImageField(upload_to='courses/', null=True, blank=True)
 
     # 4 Highlights
@@ -35,10 +42,22 @@ class Course(BaseModel):
         blank=True,
         help_text="List of eligibility requirements"
     )
+    eligibility_note = models.TextField(
+        blank=True,
+        default='',
+        help_text="Special notes or remarks for eligibility area"
+    )
     course_outcomes = JSONDataField(
         default=list,
         blank=True,
         help_text="List of learning outcomes upon completion"
+    )
+
+    # Frequently Asked Questions (FAQ)
+    faqs = JSONDataField(
+        default=list,
+        blank=True,
+        help_text="Frequently asked questions list: [{'question': '...', 'answer': '...'}]"
     )
 
     # SEO & Meta tags

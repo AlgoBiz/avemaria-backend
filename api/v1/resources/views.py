@@ -4,8 +4,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
-from apps.resources.models import PaidResource, ResourcePDF
-from .serializers import PaidResourceSerializer, ResourcePDFSerializer, ResourcePDFUploadSerializer
+from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
+from .serializers import (
+    PaidResourceSerializer,
+    ResourcePDFSerializer,
+    ResourcePDFUploadSerializer,
+    ResourceCategorySerializer,
+)
 
 class PaidResourceViewSet(viewsets.ModelViewSet):
     queryset = PaidResource.objects.prefetch_related('pdf_files').all()
@@ -14,7 +19,7 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['category', 'is_active']
-    search_fields = ['title', 'description']
+    search_fields = ['title', 'description', 'course_name']
     ordering_fields = ['price', 'created_at']
     ordering = ['-created_at', '-id']
 
@@ -33,6 +38,8 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        if self.action == 'categories' and self.request.method == 'GET':
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -70,6 +77,27 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     def create_resource(self, request, *args, **kwargs):
         """Create resource endpoint at /api/v1/resources/create/"""
         return self.create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get', 'post'], url_path='categories')
+    def categories(self, request):
+        """
+        GET: List all resource categories with counts
+        POST: Create new resource category (Admin)
+        """
+        if request.method == 'POST':
+            serializer = ResourceCategorySerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            category = serializer.save()
+            return Response(ResourceCategorySerializer(category).data, status=status.HTTP_201_CREATED)
+
+        # GET: Seed default categories if none exist, then return all non-deleted
+        existing = ResourceCategory.objects.filter(is_deleted=False)
+        if not existing.exists():
+            for name in ['Question Papers', 'Notes', 'Video Pack', 'Exam Blueprint', 'Mock Test Set']:
+                ResourceCategory.objects.get_or_create(name=name)
+
+        categories = ResourceCategory.objects.filter(is_deleted=False)
+        return Response(ResourceCategorySerializer(categories, many=True).data, status=status.HTTP_200_OK)
 
 
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser], permission_classes=[permissions.IsAuthenticated])

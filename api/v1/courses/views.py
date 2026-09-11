@@ -33,6 +33,18 @@ class CourseViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
+    def get_object(self):
+        from django.shortcuts import get_object_or_404
+        lookup = self.kwargs.get('slug') or self.kwargs.get('pk')
+        queryset = self.filter_queryset(self.get_queryset())
+        if lookup is not None and str(lookup).isdigit():
+            return get_object_or_404(queryset, id=int(lookup))
+        return get_object_or_404(queryset, slug=lookup)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
     @action(detail=False, methods=['post'], url_path='create')
     def create_course(self, request, *args, **kwargs):
         """Create course endpoint at /api/v1/courses/create/"""

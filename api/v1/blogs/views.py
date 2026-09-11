@@ -43,7 +43,9 @@ class BlogViewSet(viewsets.ModelViewSet):
         return BlogDetailSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve', 'categories']:
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        if self.action == 'categories' and self.request.method == 'GET':
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -52,12 +54,33 @@ class BlogViewSet(viewsets.ModelViewSet):
         """Create blog endpoint at /api/v1/blogs/create/"""
         return self.create(request, *args, **kwargs)
 
-    @action(detail=False, methods=['get'], url_path='categories')
+    @action(detail=False, methods=['get', 'post'], url_path='categories')
     def categories(self, request):
         """
-        Returns list of categories and counts for the filter pills in the admin UI:
-        e.g., All, Exam Strategy, Career Pathways, Clinical Skills, Licensing Updates, Study Advice
+        GET: Returns list of categories and counts for the filter pills and admin category list
+        POST: Creates a new Blog category (Admin)
         """
+        from apps.blogs.models import BlogCategory
+        from .serializers import BlogCategorySerializer
+
+        if request.method == 'POST':
+            if not (request.user and request.user.is_authenticated):
+                return Response({'detail': 'Authentication required.'}, status=status.HTTP_401_UNAUTHORIZED)
+            serializer = BlogCategorySerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            cat = serializer.save()
+            return Response(BlogCategorySerializer(cat).data, status=status.HTTP_201_CREATED)
+
+        # GET: Seed default categories if none exist
+        if not BlogCategory.objects.filter(is_deleted=False).exists():
+            default_categories = [
+                'Exam Strategy', 'Career Pathways', 'Clinical Skills',
+                'Licensing Updates', 'Study Advice', 'Licensing', 'Haematology',
+                'Quality', 'Careers', 'Postgraduate'
+            ]
+            for name in default_categories:
+                BlogCategory.objects.get_or_create(name=name)
+
         all_count = Blog.objects.filter(is_deleted=False).count()
         cat_counts = (
             Blog.objects.filter(is_deleted=False)
@@ -65,17 +88,13 @@ class BlogViewSet(viewsets.ModelViewSet):
             .annotate(count=Count('id'))
             .order_by('-count')
         )
-        
-        default_categories = [
-            'All', 'Exam Strategy', 'Career Pathways', 'Clinical Skills',
-            'Licensing Updates', 'Study Advice', 'Licensing', 'Haematology',
-            'Quality', 'Careers', 'Postgraduate'
-        ]
+        cat_objs = BlogCategory.objects.filter(is_deleted=False)
 
         return Response({
             'total_all': all_count,
-            'categories': default_categories,
-            'counts': list(cat_counts)
+            'categories': [c.name for c in cat_objs],
+            'counts': list(cat_counts),
+            'results': BlogCategorySerializer(cat_objs, many=True).data
         }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='toggle-published')

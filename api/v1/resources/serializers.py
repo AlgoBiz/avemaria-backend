@@ -1,5 +1,29 @@
 from rest_framework import serializers
-from apps.resources.models import PaidResource, ResourcePDF
+from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
+
+class ResourceCategorySerializer(serializers.ModelSerializer):
+    resources_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ResourceCategory
+        fields = ('id', 'name', 'slug', 'description', 'resources_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'is_deleted': {'default': False, 'required': False}
+        }
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            data = data.dict()
+        else:
+            data = data.copy()
+        if not data.get('name'):
+            for alias in ['title', 'category_name', 'category']:
+                if data.get(alias):
+                    data['name'] = data[alias]
+                    break
+        return super().to_internal_value(data)
+
 
 class ResourcePDFSerializer(serializers.ModelSerializer):
     uploaded_at = serializers.DateTimeField(source='created_at', read_only=True)
@@ -16,13 +40,14 @@ class PaidResourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaidResource
         fields = (
-            'id', 'title', 'slug', 'category', 'price', 'currency',
+            'id', 'title', 'slug', 'course_name', 'category', 'price', 'currency',
             'description', 'highlights', 'pdf_count', 'pdf_files',
             'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
-            'is_deleted': {'default': False, 'required': False}
+            'is_deleted': {'default': False, 'required': False},
+            'course_name': {'required': False, 'allow_blank': True}
         }
 
     def to_internal_value(self, data):
@@ -32,6 +57,13 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             mutable_data = data.copy()
         else:
             mutable_data = dict(data)
+
+        # Support 'course', 'programme_name', 'programme' alias for 'course_name'
+        if not mutable_data.get('course_name'):
+            for alias in ['course', 'programme_name', 'programme', 'course_title']:
+                if mutable_data.get(alias):
+                    mutable_data['course_name'] = str(mutable_data[alias])
+                    break
 
         # Support 'summary' alias for 'description'
         if not mutable_data.get('description') and mutable_data.get('summary'):

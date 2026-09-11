@@ -11,9 +11,9 @@ class CourseListSerializer(serializers.ModelSerializer):
         model = Course
         fields = (
             'id', 'title', 'slug', 'category', 'category_title', 'category_slug',
-            'summary', 'duration', 'level', 'fee', 'currency', 'learning_mode',
+            'overview_description', 'summary', 'duration', 'level', 'fee', 'currency', 'learning_mode',
             'cover_image', 'modules_count', 'highlights_count', 'rating',
-            'reviews_count', 'faculty_name', 'is_published', 'is_active', 'is_deleted',
+            'reviews_count', 'faculty_name', 'faqs', 'is_published', 'is_active', 'is_deleted',
             'created_at'
         )
 
@@ -29,14 +29,15 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     course_outcomes = serializers.JSONField(required=False, default=list)
     meta_keywords = serializers.JSONField(required=False, default=list)
     curriculum = serializers.JSONField(required=False, default=list)
+    faqs = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = Course
         fields = (
-            'id', 'title', 'slug', 'category', 'category_id', 'summary',
+            'id', 'title', 'slug', 'category', 'category_id', 'overview_description', 'summary',
             'duration', 'level', 'fee', 'currency', 'learning_mode', 'cover_image',
-            'highlights', 'eligibility_criteria', 'course_outcomes',
-            'meta_description', 'meta_keywords',
+            'highlights', 'eligibility_criteria', 'eligibility_note', 'course_outcomes',
+            'faqs', 'meta_description', 'meta_keywords',
             'faculty_name', 'faculty_title', 'faculty_bio', 'faculty_image',
             'curriculum', 'schedule_details',
             'modules_count', 'highlights_count', 'rating', 'reviews_count',
@@ -50,6 +51,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
     course_outcomes = serializers.JSONField(required=False, default=list)
     meta_keywords = serializers.JSONField(required=False, default=list)
     curriculum = serializers.JSONField(required=False, default=list)
+    faqs = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = Course
@@ -57,8 +59,46 @@ class CourseWriteSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
-            'is_published': {'default': True, 'required': False}
+            'is_published': {'default': True, 'required': False},
+            'overview_description': {'required': False, 'allow_blank': True},
+            'eligibility_note': {'required': False, 'allow_blank': True},
         }
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            data = data.dict()
+        else:
+            data = data.copy()
+
+        # Alias for overview_description
+        if not data.get('overview_description'):
+            for alias in ['overview', 'course_overview', 'course_description', 'description']:
+                if data.get(alias):
+                    data['overview_description'] = data[alias]
+                    break
+
+        # Alias for eligibility_note
+        if not data.get('eligibility_note'):
+            for alias in ['eligibility_notes', 'note', 'notes']:
+                if data.get(alias):
+                    data['eligibility_note'] = data[alias]
+                    break
+
+        # Alias for faqs
+        if not data.get('faqs') and data.get('faq'):
+            data['faqs'] = data['faq']
+
+        # Learning mode normalization (static choices: live online, recorded, live online+recorded)
+        if data.get('learning_mode'):
+            lm = str(data['learning_mode']).strip().lower()
+            if 'live' in lm and 'recorded' in lm:
+                data['learning_mode'] = 'live online+recorded'
+            elif 'recorded' in lm:
+                data['learning_mode'] = 'recorded'
+            elif 'live' in lm:
+                data['learning_mode'] = 'live online'
+
+        return super().to_internal_value(data)
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):

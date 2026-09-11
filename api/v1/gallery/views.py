@@ -21,9 +21,37 @@ class GalleryItemViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
+    def create(self, request, *args, **kwargs):
+        files = (
+            request.FILES.getlist('images') or
+            request.FILES.getlist('files') or
+            (request.FILES.getlist('image') if len(request.FILES.getlist('image')) > 1 else [])
+        )
+        if files:
+            caption = request.data.get('caption') or request.data.get('title', '')
+            category = request.data.get('category', 'Campus')
+            alt_text = request.data.get('alt_text') or request.data.get('description', '')
+            created_items = []
+            for f in files:
+                item = GalleryItem.objects.create(
+                    image=f,
+                    caption=caption or f.name,
+                    category=category,
+                    alt_text=alt_text
+                )
+                created_items.append(item)
+            return Response(GalleryItemSerializer(created_items, many=True).data, status=status.HTTP_201_CREATED)
+
+        return super().create(request, *args, **kwargs)
+
     @action(detail=False, methods=['post'], url_path='create')
     def create_gallery_item(self, request, *args, **kwargs):
         """Create gallery photo endpoint at /api/v1/gallery/create/"""
+        return self.create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='upload-multiple')
+    def upload_multiple(self, request, *args, **kwargs):
+        """Upload multiple gallery images endpoint at /api/v1/gallery/upload-multiple/"""
         return self.create(request, *args, **kwargs)
 
     def perform_destroy(self, instance):

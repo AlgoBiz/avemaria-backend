@@ -1,5 +1,28 @@
 from rest_framework import serializers
-from apps.blogs.models import Blog
+from apps.blogs.models import Blog, BlogCategory
+
+class BlogCategorySerializer(serializers.ModelSerializer):
+    articles_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = BlogCategory
+        fields = ('id', 'name', 'slug', 'description', 'articles_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'is_deleted': {'default': False, 'required': False}
+        }
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            data = data.dict()
+        else:
+            data = data.copy()
+        if not data.get('name'):
+            for alias in ['title', 'category_name', 'category']:
+                if data.get(alias):
+                    data['name'] = data[alias]
+                    break
+        return super().to_internal_value(data)
 
 class BlogListSerializer(serializers.ModelSerializer):
     content_blocks_count = serializers.IntegerField(read_only=True)
