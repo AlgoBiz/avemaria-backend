@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Receipt — Avemaria Learner Portal</title>
+  <style>
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+    body { height: 100% !important; margin: 0 !important; padding: 0 !important; width: 100% !important; background-color: #F4F6F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    
+    @media screen and (max-width: 600px) {
+      .email-container { width: 100% !important; margin: auto !important; }
+      .content-padding { padding: 28px 20px !important; }
+      .header-padding { padding: 30px 20px !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F6F9; color: #334155;">
+
+  <!-- Outer wrapper -->
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F4F6F9; min-height: 100vh;">
+    <tr>
+      <td align="center" style="padding: 40px 15px;">
+        
+        <!-- Main Card Container -->
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #FFFFFF; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 35px rgba(19, 31, 62, 0.08); border: 1px solid #E2E8F0;" class="email-container">
+          
+          <!-- Brand Header -->
+          <tr>
+            <td style="background: linear-gradient(145deg, #131F3E 0%, #1A2B56 100%); padding: 36px 40px; text-align: left;" class="header-padding">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="vertical-align: middle; padding-right: 14px;">
+                          <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #E5A93C, #C48D2A); border-radius: 12px; display: inline-block; text-align: center; line-height: 44px; box-shadow: 0 4px 12px rgba(212, 154, 61, 0.35);">
+                            <span style="font-size: 22px; color: #FFFFFF; font-weight: bold; line-height: 44px;">✦</span>
+                          </div>
+                        </td>
+                        <td style="vertical-align: middle;">
+                          <div style="font-size: 22px; font-weight: 700; color: #FFFFFF; letter-spacing: 0.5px; line-height: 1.2;">
+                            Avemaria
+                          </div>
+                          <div style="font-size: 11px; font-weight: 600; color: #D49A3D; letter-spacing: 1.8px; text-transform: uppercase; margin-top: 2px;">
+                            Learner Portal
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right" style="vertical-align: middle;">
+                    <span style="background-color: rgba(34, 197, 94, 0.18); border: 1px solid rgba(34, 197, 94, 0.4); color: #4ADE80; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.8px;">
+                      Payment Confirmed
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Content Body -->
+          <tr>
+            <td style="padding: 40px 40px 32px;" class="content-padding">
+              
+              <div style="font-size: 13px; font-weight: 700; color: #D49A3D; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px;">
+                Official Tax Invoice / Payment Receipt
+              </div>
+              <h1 style="margin: 0 0 16px; font-size: 24px; font-weight: 700; color: #0F172A; line-height: 1.3;">
+                Thank you for your purchase!
+              </h1>
+              
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #475569;">
+                Hello <strong style="color: #0F172A;">{{ student_name }}</strong>, your payment has been processed successfully. Your purchased study material is now unlocked and available in your portal.
+              </p>
+
+              <!-- Invoice Details Card -->
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; margin-bottom: 26px; overflow: hidden;">
+                <tr>
+                  <td style="padding: 16px 20px; border-bottom: 1px solid #E2E8F0; background-color: #F1F5F9;">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                      <tr>
+                        <td style="font-size: 13px; font-weight: 600; color: #64748B;">Invoice / Receipt Reference</td>
+                        <td align="right" style="font-size: 14px; font-weight: 700; color: #0F172A; font-family: monospace;">{{ receipt_number }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 20px;">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; color: #64748B;">Item Purchased</td>
+                        <td align="right" style="padding-bottom: 12px; font-size: 14px; font-weight: 600; color: #0F172A;">{{ resource_title }}</td>
+                      </tr>
+                      {% if category %}
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; color: #64748B;">Category</td>
+                        <td align="right" style="padding-bottom: 12px; font-size: 14px; font-weight: 500; color: #334155;">{{ category }}</td>
+                      </tr>
+                      {% endif %}
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; color: #64748B;">Date & Time</td>
+                        <td align="right" style="padding-bottom: 12px; font-size: 14px; font-weight: 500; color: #334155;">{{ purchase_date }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; color: #64748B;">Payment Method</td>
+                        <td align="right" style="padding-bottom: 12px; font-size: 14px; font-weight: 500; color: #334155; text-transform: uppercase;">{{ payment_method }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; color: #64748B;">Payment Status</td>
+                        <td align="right" style="padding-bottom: 12px; font-size: 14px; font-weight: 700; color: #16A34A;">PAID</td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top: 12px; border-top: 2px dashed #CBD5E1; font-size: 16px; font-weight: 700; color: #0F172A;">Total Paid</td>
+                        <td align="right" style="padding-top: 12px; border-top: 2px dashed #CBD5E1; font-size: 20px; font-weight: 800; color: #131F3E;">{{ amount_formatted }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Access Resource CTA -->
+              {% if access_url %}
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+                <tr>
+                  <td align="center">
+                    <a href="{{ access_url }}" target="_blank" style="background: linear-gradient(135deg, #131F3E 0%, #1A2B56 100%); color: #FFFFFF; font-size: 15px; font-weight: 600; padding: 14px 32px; border-radius: 10px; text-decoration: none; display: inline-block; box-shadow: 0 4px 14px rgba(19, 31, 62, 0.25);">
+                      Access Resource Now &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              <!-- Storage & Privacy Notice -->
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FFFDF5; border: 1px solid #FEF3C7; border-radius: 12px; margin-bottom: 28px;">
+                <tr>
+                  <td style="padding: 14px 18px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #92400E; margin-bottom: 2px;">
+                      Payment Security Guarantee
+                    </div>
+                    <div style="font-size: 12px; color: #B45309; line-height: 1.5;">
+                      Card details are never stored on Avemaria servers. Every transaction is processed securely through our authorized payment infrastructure.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #64748B;">
+                Need help or have questions regarding your order? Contact our learner desk at <a href="mailto:support@avemaria.co.uk" style="color: #D49A3D; text-decoration: underline;">support@avemaria.co.uk</a>.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F8FAFC; border-top: 1px solid #E2E8F0; padding: 24px 40px; text-align: center;">
+              <p style="margin: 0 0 6px; font-size: 12px; color: #64748B; font-weight: 600;">
+                Avemaria Global Career Solutions
+              </p>
+              <p style="margin: 0 0 10px; font-size: 11px; color: #94A3B8;">
+                London, United Kingdom &middot; Healthcare Licensing & Professional Education
+              </p>
+              <p style="margin: 0; font-size: 10px; color: #CBD5E1;">
+                This receipt was generated automatically for {{ student_email }}. Please retain for your records.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
