@@ -4,11 +4,14 @@ from core.models import BaseModel
 class Testimonial(BaseModel):
     candidate_name = models.CharField(max_length=150)
     initials = models.CharField(max_length=10, blank=True)
+    programme_name = models.CharField(max_length=255, blank=True, default='', help_text="Enrolled programme / course name")
     result_placement = models.CharField(max_length=200, blank=True, default='', help_text="e.g. DHA Licence cleared — first attempt")
     country = models.CharField(max_length=100, blank=True, default='', help_text="e.g. United Arab Emirates")
     quote = models.TextField()
     rating = models.PositiveSmallIntegerField(default=5)
     photo = models.ImageField(upload_to='testimonials/', null=True, blank=True)
+    is_published = models.BooleanField(default=True, help_text="True for Published, False for Unpublished / Draft")
+    is_student_submission = models.BooleanField(default=False, help_text="Direct student feedback submission")
     is_featured = models.BooleanField(default=True)
 
     class Meta:

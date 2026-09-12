@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from apps.enquiries.models import Enquiry
 
 class EnquiryCreateSerializer(serializers.ModelSerializer):
@@ -97,18 +98,20 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     received_at = serializers.DateTimeField(source='created_at', read_only=True)
     programme_interest = serializers.CharField(source='topic', read_only=True)
+    topic_course = serializers.CharField(source='topic', read_only=True)
     inquiry_subject = serializers.CharField(read_only=True)
     original_message = serializers.CharField(source='original_message_body', read_only=True)
     received_date_formatted = serializers.SerializerMethodField()
+    received = serializers.SerializerMethodField()
     logged_date_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Enquiry
         fields = (
-            'id', 'candidate_name', 'email', 'phone', 'topic', 'programme_interest',
+            'id', 'candidate_name', 'email', 'phone', 'topic', 'programme_interest', 'topic_course',
             'inquiry_subject', 'message', 'original_message', 'message_snippet',
             'status', 'status_display', 'is_active', 'is_deleted',
-            'received_at', 'received_date_formatted', 'logged_date_display', 'updated_at'
+            'received', 'received_at', 'received_date_formatted', 'logged_date_display', 'updated_at'
         )
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
@@ -122,6 +125,7 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid status '{value}'. Allowed: {valid_statuses}")
         return value
 
+    @extend_schema_field(serializers.CharField())
     def get_received_date_formatted(self, obj):
         if obj.created_at:
             day = obj.created_at.strftime('%d').lstrip('0')
@@ -132,6 +136,49 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
             return f"{day} {month} {obj.created_at.strftime('%Y')}"
         return ""
 
+    @extend_schema_field(serializers.CharField())
+    def get_received(self, obj):
+        return self.get_received_date_formatted(obj)
+
+    @extend_schema_field(serializers.CharField())
     def get_logged_date_display(self, obj):
         date_str = self.get_received_date_formatted(obj)
         return f"Logged {date_str}" if date_str else ""
+
+
+class EnquiryStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Enquiry.STATUS_CHOICES, help_text="Lead status: new, contacted, resolved")
+
+
+class EnquiryStatsSummarySerializer(serializers.Serializer):
+    all = serializers.IntegerField()
+    new = serializers.IntegerField()
+    contacted = serializers.IntegerField()
+    resolved = serializers.IntegerField()
+
+
+class EnquiryStatsResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    all = serializers.IntegerField()
+    new = serializers.IntegerField()
+    contacted = serializers.IntegerField()
+    resolved = serializers.IntegerField()
+    summary = EnquiryStatsSummarySerializer()
+
+
+class EnquiryReplySerializer(serializers.Serializer):
+    subject = serializers.CharField(required=False, default="")
+    message = serializers.CharField(required=True)
+
+
+class EnquiryReplyResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    enquiry = EnquiryAdminSerializer()
+
+
+class EnquiryStatusChangeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    enquiry = EnquiryAdminSerializer()
+

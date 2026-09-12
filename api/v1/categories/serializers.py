@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from apps.categories.models import Category
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -55,6 +56,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_cover_image_url(self, obj):
         if obj.cover_image:
             request = self.context.get('request')
@@ -63,9 +65,12 @@ class CategorySerializer(serializers.ModelSerializer):
             return obj.cover_image.url
         return None
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_image(self, obj):
         return self.get_cover_image_url(obj)
 
+    @extend_schema_field(serializers.CharField())
     def get_programmes_label(self, obj):
         count = obj.programmes_count
         return f"{count} {'Programme' if count == 1 else 'Programmes'}"
+

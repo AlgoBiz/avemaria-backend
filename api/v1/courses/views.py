@@ -1,21 +1,31 @@
+from django.db import models
 from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
+from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from apps.courses.models import Course
-from .serializers import CourseListSerializer, CourseDetailSerializer, CourseWriteSerializer
+from .serializers import CourseListSerializer, CourseDetailSerializer, CourseWriteSerializer, FacultyListResponseSerializer
 
 class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.select_related('category').all()
     lookup_field = 'slug'
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category__slug', 'level', 'is_published', 'is_featured']
-    search_fields = ['title', 'summary', 'faculty_name', 'meta_description']
+    filterset_fields = ['category__slug', 'category__title', 'level', 'learning_mode', 'is_published', 'is_featured']
+    search_fields = ['title', 'summary', 'overview_description', 'faculty_name', 'faculty_title', 'faculty_qualification', 'meta_description']
     ordering_fields = ['fee', 'rating', 'created_at', 'title']
     ordering = ['-created_at', '-id']
 
-
     def get_queryset(self):
         qs = super().get_queryset().filter(is_deleted=False)
+        category_param = self.request.query_params.get('category')
+        if category_param and category_param.strip().lower() != 'all':
+            category_param = category_param.strip()
+            if category_param.isdigit():
+                qs = qs.filter(category_id=int(category_param))
+            else:
+                qs = qs.filter(models.Q(category__slug__iexact=category_param) | models.Q(category__title__iexact=category_param))
+
         if self.request.user and self.request.user.is_authenticated:
             return qs
         # Public users see active, published courses only
@@ -29,7 +39,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         return CourseDetailSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'list_faculties']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -45,7 +55,39 @@ class CourseViewSet(viewsets.ModelViewSet):
         instance.is_deleted = True
         instance.save(update_fields=['is_deleted'])
 
+    @extend_schema(
+        summary="Create course",
+        description="Create course endpoint at /api/v1/courses/create/",
+        request=CourseWriteSerializer,
+        responses={201: CourseDetailSerializer}
+    )
     @action(detail=False, methods=['post'], url_path='create')
     def create_course(self, request, *args, **kwargs):
         """Create course endpoint at /api/v1/courses/create/"""
         return self.create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="List faculties",
+        description="Returns distinct faculty profiles across all published courses for 'Select Existing Faculty' modal",
+        responses={200: FacultyListResponseSerializer}
+    )
+    @action(detail=False, methods=['get'], url_path='faculties')
+    def list_faculties(self, request):
+        """Returns distinct faculty profiles across all published courses for 'Select Existing Faculty' modal"""
+        courses = Course.objects.filter(is_deleted=False).exclude(faculty_name='').exclude(faculty_name__isnull=True)
+        seen = set()
+        faculties = []
+        for c in courses:
+            name = (c.faculty_name or '').strip()
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                faculties.append({
+                    'faculty_name': name,
+                    'faculty_title': c.faculty_title or '',
+                    'faculty_qualification': c.faculty_qualification or c.faculty_title or '',
+                    'faculty_experience': c.faculty_experience or '',
+                    'faculty_bio': c.faculty_bio or '',
+                    'faculty_display': f"{name} ({c.faculty_qualification or c.faculty_title})" if (c.faculty_qualification or c.faculty_title) else name,
+                    'faculty_image': c.faculty_image.url if c.faculty_image else None
+                })
+        return Response({'count': len(faculties), 'results': faculties})

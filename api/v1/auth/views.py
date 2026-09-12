@@ -15,6 +15,8 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
+
 
 from apps.accounts.models import User, PasswordResetOTP
 from apps.students.models import Student, StudentDocument
@@ -43,7 +45,27 @@ from .serializers import (
     StudentProfileSerializer,
     StudentDocumentSerializer,
     AdminLoginSerializer,
+    AdminLoginResponseSerializer,
     StudentChangePasswordSerializer,
+    StudentLogoutSerializer,
+    MessageResponseSerializer,
+    PasswordResetRequestResponseSerializer,
+    PasswordResetValidateResponseSerializer,
+    OTPRequestResponseSerializer,
+    OTPVerifyResponseSerializer,
+    StudentDocumentUploadSerializer,
+    StudentDocumentUploadResponseSerializer,
+    StudentCourseEnrollSerializer,
+    StudentCourseEnrollResponseSerializer,
+    StudentCoursesListResponseSerializer,
+    StudentResourcePurchaseSerializer,
+    StudentResourcePurchaseResponseSerializer,
+    StudentResourceAccessResponseSerializer,
+    StudentPurchasedResourcesListResponseSerializer,
+    StudentPurchaseHistoryListResponseSerializer,
+    StudentPaymentDetailsResponseSerializer,
+    StudentReceiptsListResponseSerializer,
+    StudentReceiptResendResponseSerializer,
 )
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -64,11 +86,25 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 class AdminProfileView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AdminProfileSerializer
 
+    @extend_schema(
+        tags=['Admin Profile'],
+        summary="Get Current Admin Profile",
+        description="Retrieves the profile details of the authenticated administrator.",
+        responses={200: AdminProfileSerializer}
+    )
     def get(self, request):
         serializer = AdminProfileSerializer(request.user)
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=['Admin Profile'],
+        summary="Update Current Admin Profile (PUT)",
+        description="Updates display name, email, or avatar of the authenticated administrator.",
+        request=AdminProfileUpdateSerializer,
+        responses={200: AdminProfileSerializer, 400: OpenApiResponse(description="Validation error")}
+    )
     def put(self, request):
         serializer = AdminProfileUpdateSerializer(instance=request.user, data=request.data, partial=True)
         if serializer.is_valid():
@@ -76,13 +112,31 @@ class AdminProfileView(APIView):
             return Response(AdminProfileSerializer(request.user).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @extend_schema(
+        tags=['Admin Profile'],
+        summary="Partially Update Current Admin Profile (PATCH)",
+        description="Partially updates administrator details.",
+        request=AdminProfileUpdateSerializer,
+        responses={200: AdminProfileSerializer, 400: OpenApiResponse(description="Validation error")}
+    )
     def patch(self, request):
         return self.put(request)
 
 
 class ChangePasswordView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Change Administrator Password",
+        description="Allows an authenticated administrator to update their password.",
+        request=ChangePasswordSerializer,
+        responses={
+            200: MessageResponseSerializer,
+            400: OpenApiResponse(description="Validation error")
+        }
+    )
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)
         if serializer.is_valid():
@@ -98,7 +152,19 @@ class PasswordResetRequestView(APIView):
     and delivering an Avemaria brand-styled HTML email to the administrator.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetRequestSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Request Admin Password Reset Link",
+        description="Generates a single-use token and emails password reset link to administrator.",
+        request=PasswordResetRequestSerializer,
+        responses={
+            200: PasswordResetRequestResponseSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Account not found")
+        }
+    )
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -169,7 +235,18 @@ class PasswordResetValidateTokenView(APIView):
     Useful for the frontend to show a warning or load the form immediately.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetValidateTokenSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Validate Password Reset Token",
+        description="Validates whether the token and UID are valid and non-expired.",
+        request=PasswordResetValidateTokenSerializer,
+        responses={
+            200: PasswordResetValidateResponseSerializer,
+            400: OpenApiResponse(description="Invalid or expired token")
+        }
+    )
     def post(self, request):
         serializer = PasswordResetValidateTokenSerializer(data=request.data)
         if not serializer.is_valid():
@@ -208,7 +285,18 @@ class PasswordResetConfirmView(APIView):
     Applies the new password for the administrator once the token is validated.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Confirm Admin Password Reset",
+        description="Sets the new password using the validated UID and token.",
+        request=PasswordResetConfirmSerializer,
+        responses={
+            200: MessageResponseSerializer,
+            400: OpenApiResponse(description="Validation error or invalid token")
+        }
+    )
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
         if not serializer.is_valid():
@@ -250,7 +338,20 @@ class OTPRequestView(APIView):
     and cooldown protection to prevent rapid spamming.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPRequestSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Request 6-digit OTP Code",
+        description="Dispatches a 6-digit OTP to the admin's email with 60s validity and cooldown.",
+        request=OTPRequestSerializer,
+        responses={
+            200: OTPRequestResponseSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Account not found"),
+            429: OpenApiResponse(description="Cooldown active")
+        }
+    )
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -346,7 +447,18 @@ class OTPVerifyView(APIView):
     Returns a signed reset token valid for completing the password reset.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPVerifySerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Verify Admin OTP Code",
+        description="Verifies the submitted 6-digit OTP and returns a signed reset token.",
+        request=OTPVerifySerializer,
+        responses={
+            200: OTPVerifyResponseSerializer,
+            400: OpenApiResponse(description="Invalid or expired OTP")
+        }
+    )
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data)
         if not serializer.is_valid():
@@ -433,7 +545,18 @@ class OTPPasswordResetConfirmView(APIView):
     2. Direct flow: Submitting `email` + `otp` + `new_password` directly.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPPasswordResetConfirmSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Confirm Password Reset via OTP or Token",
+        description="Resets the password using either signed reset_token or direct OTP verification.",
+        request=OTPPasswordResetConfirmSerializer,
+        responses={
+            200: MessageResponseSerializer,
+            400: OpenApiResponse(description="Invalid or expired credentials")
+        }
+    )
     def post(self, request):
         serializer = OTPPasswordResetConfirmSerializer(data=request.data)
         if not serializer.is_valid():
@@ -546,7 +669,61 @@ class StudentRegisterView(APIView):
     'Create your account' form (Full name, Email address, Password).
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = StudentRegisterSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Student Registration (Create Account)",
+        description="Registers a new student learner account and creates an active student profile with JWT session credentials.",
+        request=StudentRegisterSerializer,
+        responses={
+            201: OpenApiResponse(description="Student registered successfully and JWT tokens returned"),
+            400: OpenApiResponse(description="Validation Error")
+        },
+        examples=[
+            OpenApiExample(
+                'Student Register Request Example',
+                value={
+                    "full_name": "Ann Maria Joseph",
+                    "email": "demo@avemaria.test",
+                    "password": "Password123!",
+                    "phone": "+44 7700 900123",
+                    "qualification": "BSc Medical Laboratory Technology",
+                    "institution": "MG University",
+                    "graduating_year": "2021",
+                    "location": "London, United Kingdom"
+                },
+                request_only=True,
+                media_type='application/json'
+            ),
+            OpenApiExample(
+                'Student Register Response Example',
+                value={
+                    "status": "success",
+                    "message": "Your account has been created successfully.",
+                    "access": "<jwt_access_token>",
+                    "refresh": "<jwt_refresh_token>",
+                    "user": {
+                        "id": 1,
+                        "email": "demo@avemaria.test",
+                        "name": "Ann Maria Joseph",
+                        "role": "student"
+                    },
+                    "student_profile": {
+                        "id": 1,
+                        "full_name": "Ann Maria Joseph",
+                        "email": "demo@avemaria.test",
+                        "phone": "+44 7700 900123",
+                        "highest_qualification": "BSc Medical Laboratory Technology",
+                        "university": "MG University",
+                        "status": "active"
+                    }
+                },
+                response_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def post(self, request):
         serializer = StudentRegisterSerializer(data=request.data)
         if not serializer.is_valid():
@@ -595,7 +772,7 @@ class StudentRegisterView(APIView):
                     "name": user.display_name,
                     "role": user.role,
                 },
-                "student_profile": StudentProfileSerializer(student).data
+                "student_profile": StudentProfileSerializer(student, context={'request': request}).data
             },
             status=status.HTTP_201_CREATED
         )
@@ -607,7 +784,55 @@ class StudentLoginView(APIView):
     'Sign in to your account' form (Email address, Password).
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = StudentLoginSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Student Login (Sign In)",
+        description="Authenticates a student by email and password, returning JWT access & refresh tokens along with user and profile data.",
+        request=StudentLoginSerializer,
+        responses={
+            200: OpenApiResponse(description="Signed in successfully with JWT session tokens"),
+            400: OpenApiResponse(description="Invalid email address or password")
+        },
+        examples=[
+            OpenApiExample(
+                'Student Login Request Example',
+                value={
+                    "email": "demo@avemaria.test",
+                    "password": "Password123!"
+                },
+                request_only=True,
+                media_type='application/json'
+            ),
+            OpenApiExample(
+                'Student Login Response Example',
+                value={
+                    "status": "success",
+                    "message": "Signed in successfully.",
+                    "access": "<jwt_access_token>",
+                    "refresh": "<jwt_refresh_token>",
+                    "user": {
+                        "id": 1,
+                        "email": "demo@avemaria.test",
+                        "name": "Ann Maria Joseph",
+                        "role": "student"
+                    },
+                    "student_profile": {
+                        "id": 1,
+                        "full_name": "Ann Maria Joseph",
+                        "email": "demo@avemaria.test",
+                        "phone": "+44 7700 900123",
+                        "highest_qualification": "BSc Medical Laboratory Technology",
+                        "university": "MG University",
+                        "status": "active"
+                    }
+                },
+                response_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def post(self, request):
         serializer = StudentLoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -658,7 +883,7 @@ class StudentLoginView(APIView):
                     "name": user.display_name,
                     "role": user.role,
                 },
-                "student_profile": StudentProfileSerializer(student).data
+                "student_profile": StudentProfileSerializer(student, context={'request': request}).data
             },
             status=status.HTTP_200_OK
         )
@@ -669,7 +894,65 @@ class StudentProfileView(APIView):
     Retrieves or updates the authenticated student's profile information.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentProfileSerializer
 
+    @extend_schema(
+        tags=['Student Portal & Profile'],
+        summary="Retrieve authenticated student profile",
+        description="Retrieves the full profile details of the authenticated student, including personal details, address, academic background, passport info, and uploaded documents.",
+        responses={
+            200: StudentProfileSerializer,
+        },
+        examples=[
+            OpenApiExample(
+                'Student Profile Response Example',
+                value={
+                    "id": 1,
+                    "avatar": "http://127.0.0.1:8000/media/students/avatars/profile.jpg",
+                    "avatar_url": "http://127.0.0.1:8000/media/students/avatars/profile.jpg",
+                    "name": "Ann Maria Joseph",
+                    "full_name": "Ann Maria Joseph",
+                    "email": "demo@avemaria.test",
+                    "phone": "+44 7700 900123",
+                    "whatsapp": "+44 7700 900123",
+                    "date_of_birth": "1999-12-04",
+                    "dob": "1999-12-04",
+                    "gender": "Female",
+                    "nationality": "Indian",
+                    "address_line_1": "Flat 4, 22 Shelton Street",
+                    "address_line_2": "",
+                    "city": "London",
+                    "state": "Greater London",
+                    "postal_code": "WC2H 9JQ",
+                    "country": "United Kingdom",
+                    "qualification": "BSc Medical Laboratory Technology",
+                    "highest_qualification": "BSc Medical Laboratory Technology",
+                    "institution": "MG University",
+                    "university": "MG University",
+                    "graduating_year": "2021",
+                    "year_of_graduation": "2021",
+                    "institution_and_year": "MG University · 2021",
+                    "current_role": "Lab Technologist",
+                    "employer_hospital": "St Marys Hospital",
+                    "years_of_experience": "2",
+                    "passport_number": "P12345678",
+                    "country_of_issue": "India",
+                    "passport_expiry_date": "2029-08-15",
+                    "expiry_date": "2029-08-15",
+                    "passport_expiry": "2029-08-15",
+                    "documents": [],
+                    "location": "London, United Kingdom",
+                    "status": "active",
+                    "status_display": "Active on Portal",
+                    "registered_date": "2026-09-12",
+                    "created_at": "2026-09-12T10:00:00Z",
+                    "updated_at": "2026-09-12T10:30:00Z"
+                },
+                response_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -677,19 +960,186 @@ class StudentProfileView(APIView):
                 email=request.user.email,
                 defaults={'user': request.user, 'name': request.user.display_name, 'status': 'active'}
             )
-            if student.user != request.user:
-                student.user = request.user
-                student.save(update_fields=['user'])
+        if student.user != request.user:
+            student.user = request.user
+            student.save(update_fields=['user'])
 
-        return Response(StudentProfileSerializer(student).data)
+        return Response(StudentProfileSerializer(student, context={'request': request}).data)
 
+    @extend_schema(
+        tags=['Student Portal & Profile'],
+        summary="Save student profile via POST (or Multipart Avatar upload)",
+        description="Allows saving student profile fields or uploading profile photo/avatar using POST.",
+        request=StudentProfileSerializer,
+        responses={
+            200: StudentProfileSerializer,
+            400: OpenApiResponse(description="Validation Error")
+        },
+        examples=[
+            OpenApiExample(
+                'Student Profile Save Example (application/json)',
+                value={
+                    "full_name": "Ann Maria Joseph",
+                    "phone": "+44 7700 900123",
+                    "whatsapp": "+44 7700 900123",
+                    "date_of_birth": "1999-12-04",
+                    "gender": "Female",
+                    "nationality": "Indian",
+                    "address_line_1": "Flat 4, 22 Shelton Street",
+                    "address_line_2": "",
+                    "city": "London",
+                    "state": "Greater London",
+                    "postal_code": "WC2H 9JQ",
+                    "country": "United Kingdom",
+                    "highest_qualification": "BSc Medical Laboratory Technology",
+                    "university": "MG University",
+                    "year_of_graduation": "2021",
+                    "current_role": "Lab Technologist",
+                    "employer_hospital": "St Marys Hospital",
+                    "years_of_experience": "2",
+                    "passport_number": "P12345678",
+                    "country_of_issue": "India",
+                    "expiry_date": "2029-08-15"
+                },
+                request_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def post(self, request):
         """Allow saving/updating profile via POST as well as PATCH/PUT."""
         return self.patch(request)
 
+    @extend_schema(
+        tags=['Student Portal & Profile'],
+        summary="Full update of student profile (PUT)",
+        description="Replaces or updates student profile attributes with full payload.",
+        request=StudentProfileSerializer,
+        responses={
+            200: StudentProfileSerializer,
+            400: OpenApiResponse(description="Validation Error")
+        },
+        examples=[
+            OpenApiExample(
+                'Student Profile Update Example (application/json)',
+                value={
+                    "full_name": "Ann Maria Joseph",
+                    "phone": "+44 7700 900123",
+                    "whatsapp": "+44 7700 900123",
+                    "date_of_birth": "1999-12-04",
+                    "gender": "Female",
+                    "nationality": "Indian",
+                    "address_line_1": "Flat 4, 22 Shelton Street",
+                    "address_line_2": "",
+                    "city": "London",
+                    "state": "Greater London",
+                    "postal_code": "WC2H 9JQ",
+                    "country": "United Kingdom",
+                    "highest_qualification": "BSc Medical Laboratory Technology",
+                    "university": "MG University",
+                    "year_of_graduation": "2021",
+                    "current_role": "Lab Technologist",
+                    "employer_hospital": "St Marys Hospital",
+                    "years_of_experience": "2",
+                    "passport_number": "P12345678",
+                    "country_of_issue": "India",
+                    "expiry_date": "2029-08-15"
+                },
+                request_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def put(self, request):
         return self.patch(request)
 
+    @extend_schema(
+        tags=['Student Portal & Profile'],
+        summary="Save / Update student profile (PATCH)",
+        description="Saves and partially updates the student's profile details. Accepts personal details, address, academic credentials, and passport details. Also supports profile photo uploads.",
+        request=StudentProfileSerializer,
+        responses={
+            200: StudentProfileSerializer,
+            400: OpenApiResponse(description="Validation Error")
+        },
+        examples=[
+            OpenApiExample(
+                'Save Profile Request Example (application/json)',
+                value={
+                    "full_name": "Ann Maria Joseph",
+                    "phone": "+44 7700 900123",
+                    "whatsapp": "+44 7700 900123",
+                    "date_of_birth": "1999-12-04",
+                    "gender": "Female",
+                    "nationality": "Indian",
+                    "address_line_1": "Flat 4, 22 Shelton Street",
+                    "address_line_2": "",
+                    "city": "London",
+                    "state": "Greater London",
+                    "postal_code": "WC2H 9JQ",
+                    "country": "United Kingdom",
+                    "highest_qualification": "BSc Medical Laboratory Technology",
+                    "university": "MG University",
+                    "year_of_graduation": "2021",
+                    "current_role": "Lab Technologist",
+                    "employer_hospital": "St Marys Hospital",
+                    "years_of_experience": "2",
+                    "passport_number": "P12345678",
+                    "country_of_issue": "India",
+                    "expiry_date": "2029-08-15"
+                },
+                request_only=True,
+                media_type='application/json'
+            ),
+            OpenApiExample(
+                'Save Profile Response Example (application/json)',
+                value={
+                    "id": 1,
+                    "avatar": "http://127.0.0.1:8000/media/students/avatars/profile.jpg",
+                    "avatar_url": "http://127.0.0.1:8000/media/students/avatars/profile.jpg",
+                    "name": "Ann Maria Joseph",
+                    "full_name": "Ann Maria Joseph",
+                    "email": "demo@avemaria.test",
+                    "phone": "+44 7700 900123",
+                    "whatsapp": "+44 7700 900123",
+                    "date_of_birth": "1999-12-04",
+                    "dob": "1999-12-04",
+                    "gender": "Female",
+                    "nationality": "Indian",
+                    "address_line_1": "Flat 4, 22 Shelton Street",
+                    "address_line_2": "",
+                    "city": "London",
+                    "state": "Greater London",
+                    "postal_code": "WC2H 9JQ",
+                    "country": "United Kingdom",
+                    "qualification": "BSc Medical Laboratory Technology",
+                    "highest_qualification": "BSc Medical Laboratory Technology",
+                    "institution": "MG University",
+                    "university": "MG University",
+                    "graduating_year": "2021",
+                    "year_of_graduation": "2021",
+                    "institution_and_year": "MG University · 2021",
+                    "current_role": "Lab Technologist",
+                    "employer_hospital": "St Marys Hospital",
+                    "years_of_experience": "2",
+                    "passport_number": "P12345678",
+                    "country_of_issue": "India",
+                    "passport_expiry_date": "2029-08-15",
+                    "expiry_date": "2029-08-15",
+                    "passport_expiry": "2029-08-15",
+                    "documents": [],
+                    "location": "London, United Kingdom",
+                    "status": "active",
+                    "status_display": "Active on Portal",
+                    "registered_date": "2026-09-12",
+                    "created_at": "2026-09-12T10:00:00Z",
+                    "updated_at": "2026-09-12T10:30:00Z"
+                },
+                response_only=True,
+                media_type='application/json'
+            )
+        ]
+    )
     def patch(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -697,15 +1147,27 @@ class StudentProfileView(APIView):
                 email=request.user.email,
                 defaults={'user': request.user, 'name': request.user.display_name, 'status': 'active'}
             )
+        if student.user != request.user:
+            student.user = request.user
+            student.save(update_fields=['user'])
 
         serializer = StudentProfileSerializer(student, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
 
-            # Handle Profile Photo upload
-            if 'avatar' in request.FILES:
-                student.avatar = request.FILES['avatar']
+            # Handle Profile Photo upload flexibly (avatar / photo / profile_photo / image)
+            photo_file = (
+                request.FILES.get('avatar') or
+                request.FILES.get('photo') or
+                request.FILES.get('profile_photo') or
+                request.FILES.get('image')
+            )
+            if photo_file:
+                student.avatar = photo_file
                 student.save(update_fields=['avatar'])
+                if hasattr(request.user, 'avatar') and hasattr(request.user, 'save'):
+                    request.user.avatar = photo_file
+                    request.user.save(update_fields=['avatar'])
 
             # Handle multiple documents uploaded under 'documents' or 'files'
             doc_files = request.FILES.getlist('documents') or request.FILES.getlist('files')
@@ -756,7 +1218,18 @@ class StudentDocumentUploadView(APIView):
     Supports both image formats (JPG, PNG, WEBP) and documents (PDF, DOC, DOCX).
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentDocumentUploadSerializer
 
+    @extend_schema(
+        tags=['Student Documents'],
+        summary="Upload Student Document",
+        description="Uploads a passport, certificate, ID card, or other verification file for the student profile.",
+        request=StudentDocumentUploadSerializer,
+        responses={
+            201: StudentDocumentUploadResponseSerializer,
+            400: OpenApiResponse(description="No file provided or validation error")
+        }
+    )
     def post(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -798,6 +1271,15 @@ class StudentDocumentDeleteView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Student Documents'],
+        summary="Delete Uploaded Student Document",
+        description="Removes an uploaded document from the student's profile.",
+        responses={
+            200: MessageResponseSerializer,
+            404: OpenApiResponse(description="Document not found")
+        }
+    )
     def delete(self, request, pk):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -822,7 +1304,19 @@ class AdminLoginView(APIView):
     and blocks non-admin (e.g. student) accounts with 403 Forbidden.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = AdminLoginSerializer
 
+    @extend_schema(
+        tags=['Admin Authentication'],
+        summary="Administrator Login",
+        description="Authenticates administrator credentials and returns JWT session tokens.",
+        request=AdminLoginSerializer,
+        responses={
+            200: AdminLoginResponseSerializer,
+            400: OpenApiResponse(description="Invalid administrator credentials"),
+            403: OpenApiResponse(description="Access restricted to administrators")
+        }
+    )
     def post(self, request):
         serializer = AdminLoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -876,7 +1370,20 @@ class StudentOTPRequestView(APIView):
     delivering a student-branded email with 60-second validity and cooldown protection.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPRequestSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Student OTP Password Reset Request",
+        description="Sends a 6-digit verification code to the registered student email.",
+        request=OTPRequestSerializer,
+        responses={
+            200: OTPRequestResponseSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Student account not found"),
+            429: OpenApiResponse(description="Cooldown active")
+        }
+    )
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -976,7 +1483,18 @@ class StudentOTPVerifyView(APIView):
     Returns a signed reset token valid for completing the password reset.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPVerifySerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Verify Student OTP Code",
+        description="Validates student 6-digit OTP and returns signed reset token.",
+        request=OTPVerifySerializer,
+        responses={
+            200: OTPVerifyResponseSerializer,
+            400: OpenApiResponse(description="Invalid or expired OTP")
+        }
+    )
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data)
         if not serializer.is_valid():
@@ -1059,7 +1577,18 @@ class StudentOTPConfirmView(APIView):
     Confirms student password reset using either signed reset_token or direct OTP.
     """
     permission_classes = [permissions.AllowAny]
+    serializer_class = OTPPasswordResetConfirmSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Confirm Student Password Reset",
+        description="Sets new student password using signed reset token or direct OTP.",
+        request=OTPPasswordResetConfirmSerializer,
+        responses={
+            200: MessageResponseSerializer,
+            400: OpenApiResponse(description="Invalid or expired credentials")
+        }
+    )
     def post(self, request):
         serializer = OTPPasswordResetConfirmSerializer(data=request.data)
         if not serializer.is_valid():
@@ -1170,7 +1699,14 @@ class StudentCoursesView(APIView):
     Returns the list of courses the authenticated student has opted to study / enrolled in.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCoursesListResponseSerializer
 
+    @extend_schema(
+        tags=['Student Opted Courses'],
+        summary="List Enrolled / Opted Courses",
+        description="Returns list of courses the authenticated student is actively enrolled in.",
+        responses={200: StudentCoursesListResponseSerializer}
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1194,7 +1730,20 @@ class StudentCourseEnrollView(APIView):
     Takes 'course_id' or 'course_slug' in the request body.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCourseEnrollSerializer
 
+    @extend_schema(
+        tags=['Student Opted Courses'],
+        summary="Enroll / Opt into Course",
+        description="Enrolls the student in a course by ID or slug.",
+        request=StudentCourseEnrollSerializer,
+        responses={
+            201: StudentCourseEnrollResponseSerializer,
+            200: StudentCourseEnrollResponseSerializer,
+            400: OpenApiResponse(description="Either 'course_id' or 'course_slug' must be provided."),
+            404: OpenApiResponse(description="Course not found or unavailable")
+        }
+    )
     def post(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1256,6 +1805,15 @@ class StudentCourseDropView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Student Opted Courses'],
+        summary="Drop / Unenroll Course",
+        description="Removes a course enrollment for the authenticated student.",
+        responses={
+            200: MessageResponseSerializer,
+            404: OpenApiResponse(description="Enrollment not found")
+        }
+    )
     def delete(self, request, course_id):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1283,7 +1841,14 @@ class StudentPurchasedResourcesView(APIView):
     Formatted Purchase Date ("Purchased 31 Aug 2026"), and Access resource button.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentPurchasedResourcesListResponseSerializer
 
+    @extend_schema(
+        tags=['Student Resource Purchases'],
+        summary="List Purchased Resources",
+        description="Returns list of study resources unlocked / purchased by the student.",
+        responses={200: StudentPurchasedResourcesListResponseSerializer}
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1318,7 +1883,20 @@ class StudentResourcePurchaseView(APIView):
     Takes 'resource_id' or 'resource_slug' in the request body.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentResourcePurchaseSerializer
 
+    @extend_schema(
+        tags=['Student Resource Purchases'],
+        summary="Purchase Study Resource",
+        description="Unlocks a paid study resource for the authenticated student and sends an invoice receipt email.",
+        request=StudentResourcePurchaseSerializer,
+        responses={
+            201: StudentResourcePurchaseResponseSerializer,
+            200: StudentResourcePurchaseResponseSerializer,
+            400: OpenApiResponse(description="Missing resource identifier or validation error"),
+            404: OpenApiResponse(description="Resource not found")
+        }
+    )
     def post(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1395,7 +1973,18 @@ class StudentResourceAccessView(APIView):
     Logs an access or download action for a purchased resource and returns access/file URLs.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentResourceAccessResponseSerializer
 
+    @extend_schema(
+        tags=['Student Resource Purchases'],
+        summary="Access Purchased Resource Files (POST)",
+        description="Logs an access event and returns resource details and PDF file download URLs.",
+        responses={
+            200: StudentResourceAccessResponseSerializer,
+            403: OpenApiResponse(description="Resource not purchased or access expired"),
+            404: OpenApiResponse(description="Student profile not found")
+        }
+    )
     def post(self, request, resource_id):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1425,6 +2014,16 @@ class StudentResourceAccessView(APIView):
             "purchase": serializer.data
         }, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        tags=['Student Resource Purchases'],
+        summary="Access Purchased Resource Files (GET)",
+        description="Returns resource details and PDF file download URLs.",
+        responses={
+            200: StudentResourceAccessResponseSerializer,
+            403: OpenApiResponse(description="Resource not purchased or access expired"),
+            404: OpenApiResponse(description="Student profile not found")
+        }
+    )
     def get(self, request, resource_id):
         return self.post(request, resource_id)
 
@@ -1435,7 +2034,14 @@ class StudentPurchaseHistoryView(APIView):
     Matches the columns: SL. NO | RESOURCE | DATE | AMOUNT | STATUS
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentPurchaseHistoryListResponseSerializer
 
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="Student Purchase History Register",
+        description="Returns structured purchase history matching the student portal table.",
+        responses={200: StudentPurchaseHistoryListResponseSerializer}
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1476,7 +2082,14 @@ class StudentPaymentDetailsView(APIView):
     student payment details interface.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentPaymentDetailsResponseSerializer
 
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="Student Payment Details & Spending Summary",
+        description="Returns total spent KPI, payment methods notice, and individual transaction rows.",
+        responses={200: StudentPaymentDetailsResponseSerializer}
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1539,7 +2152,14 @@ class StudentReceiptsView(APIView):
     - Status: "Receipt emailed to you"
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentReceiptsListResponseSerializer
 
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="List Student Invoices / Receipts",
+        description="Returns invoice and receipt cards for all completed purchases.",
+        responses={200: StudentReceiptsListResponseSerializer}
+    )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1562,7 +2182,18 @@ class StudentReceiptResendView(APIView):
     Re-dispatches the payment receipt / invoice email to the student's email address.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentReceiptResendResponseSerializer
 
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="Resend Purchase Receipt Email",
+        description="Re-dispatches the official branded purchase receipt / tax invoice to the student's email.",
+        responses={
+            200: StudentReceiptResendResponseSerializer,
+            404: OpenApiResponse(description="Receipt not found"),
+            500: OpenApiResponse(description="Email dispatch failed")
+        }
+    )
     def post(self, request, purchase_id):
         student = getattr(request.user, 'student_profile', None)
         if not student:
@@ -1600,7 +2231,18 @@ class StudentChangePasswordView(APIView):
     - new_password
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentChangePasswordSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Change Student Password",
+        description="Updates password from the student portal interface.",
+        request=StudentChangePasswordSerializer,
+        responses={
+            200: MessageResponseSerializer,
+            400: OpenApiResponse(description="Validation error")
+        }
+    )
     def post(self, request):
         serializer = StudentChangePasswordSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
@@ -1623,7 +2265,15 @@ class StudentLogoutView(APIView):
     Optionally invalidates the provided refresh token.
     """
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentLogoutSerializer
 
+    @extend_schema(
+        tags=['Student Authentication'],
+        summary="Student Sign Out / Logout",
+        description="Signs the student out and optionally blacklists the provided refresh token.",
+        request=StudentLogoutSerializer,
+        responses={200: MessageResponseSerializer}
+    )
     def post(self, request):
         refresh_token = request.data.get('refresh')
         if refresh_token:

@@ -1,5 +1,8 @@
+from datetime import datetime, date
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from apps.accounts.models import User
+
 
 class AdminProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -144,6 +147,7 @@ class StudentDocumentSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('id', 'file_url', 'file_name', 'file_size', 'uploaded_at')
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_url(self, obj):
         if obj.file:
             request = self.context.get('request')
@@ -153,24 +157,53 @@ class StudentDocumentSerializer(serializers.ModelSerializer):
         return None
 
 
+class FlexibleDateField(serializers.DateField):
+    """
+    Resilient date field accepting ISO-8601 (YYYY-MM-DD), DD/MM/YYYY, MM/DD/YYYY,
+    DD-MM-YYYY, ISO datetime strings, and converting empty strings/nulls to None.
+    """
+    def to_internal_value(self, value):
+        if value in (None, '', 'null', 'None'):
+            return None
+        if isinstance(value, (datetime, date)):
+            return value if isinstance(value, date) else value.date()
+        if isinstance(value, str):
+            clean_str = value.split('T')[0].strip()
+            if not clean_str or clean_str in ('null', 'None'):
+                return None
+            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d'):
+                try:
+                    return datetime.strptime(clean_str, fmt).date()
+                except ValueError:
+                    continue
+        return super().to_internal_value(value)
+
+
 class StudentProfileSerializer(serializers.ModelSerializer):
     institution_and_year = serializers.CharField(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     documents = StudentDocumentSerializer(many=True, read_only=True)
+    avatar_url = serializers.SerializerMethodField(read_only=True)
 
-    # Aliases matching frontend field naming
-    full_name = serializers.CharField(source='name', required=False)
-    highest_qualification = serializers.CharField(source='qualification', required=False)
-    university = serializers.CharField(source='institution', required=False)
-    year_of_graduation = serializers.CharField(source='graduating_year', required=False)
+    date_of_birth = FlexibleDateField(required=False, allow_null=True)
+    passport_expiry_date = FlexibleDateField(required=False, allow_null=True)
+
+    # Convenient aliases matching various frontend field namings
+    full_name = serializers.CharField(source='name', required=False, allow_blank=True)
+    highest_qualification = serializers.CharField(source='qualification', required=False, allow_blank=True)
+    university = serializers.CharField(source='institution', required=False, allow_blank=True)
+    year_of_graduation = serializers.CharField(source='graduating_year', required=False, allow_blank=True)
+    expiry_date = FlexibleDateField(source='passport_expiry_date', required=False, allow_null=True)
+    passport_expiry = FlexibleDateField(source='passport_expiry_date', required=False, allow_null=True)
+    dob = FlexibleDateField(source='date_of_birth', required=False, allow_null=True)
 
     class Meta:
         from apps.students.models import Student
         model = Student
         fields = (
-            'id', 'avatar',
+            'id', 'avatar', 'avatar_url',
             # Personal Details
-            'name', 'full_name', 'email', 'phone', 'whatsapp', 'date_of_birth', 'gender', 'nationality',
+            'name', 'full_name', 'email', 'phone', 'whatsapp', 'date_of_birth', 'dob', 'gender', 'nationality',
             # Address Details
             'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country',
             # Academic & Professional Details
@@ -178,7 +211,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'graduating_year', 'year_of_graduation', 'institution_and_year',
             'current_role', 'employer_hospital', 'years_of_experience',
             # Passport Details
-            'passport_number', 'country_of_issue', 'passport_expiry_date',
+            'passport_number', 'country_of_issue', 'passport_expiry_date', 'expiry_date', 'passport_expiry',
             # Documents
             'documents',
             # General / System
@@ -190,8 +223,212 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'institution_and_year', 'documents', 'registered_date', 'created_at', 'updated_at'
         )
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'copy'):
+            data = data.copy()
+        elif isinstance(data, dict):
+            data = dict(data)
+
+        # Mapping variations from different frontends/forms to the target model fields
+        alias_map = {
+            'full_name': 'name',
+            'highest_qualification': 'qualification',
+            'university': 'institution',
+            'university_institution': 'institution',
+            'year_of_graduation': 'graduating_year',
+            'expiry_date': 'passport_expiry_date',
+            'passport_expiry': 'passport_expiry_date',
+            'dob': 'date_of_birth',
+            'address_line1': 'address_line_1',
+            'address1': 'address_line_1',
+            'address_line2': 'address_line_2',
+            'address2': 'address_line_2',
+            'city_town': 'city',
+            'state_region': 'state',
+            'region': 'state',
+            'employer': 'employer_hospital',
+            'hospital': 'employer_hospital',
+            'experience': 'years_of_experience',
+            'whatsapp_number': 'whatsapp',
+            'postalCode': 'postal_code',
+            'postcode': 'postal_code',
+            'zip_code': 'postal_code',
+        }
+        for alias_key, target_key in alias_map.items():
+            if alias_key in data and (target_key not in data or data[target_key] in ('', None)):
+                data[target_key] = data[alias_key]
+
+        return super().to_internal_value(data)
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        # Ensure convenience aliases are always present in JSON output for direct binding
+        ret['full_name'] = instance.name
+        ret['highest_qualification'] = instance.qualification
+        ret['university'] = instance.institution
+        ret['year_of_graduation'] = instance.graduating_year
+        ret['expiry_date'] = str(instance.passport_expiry_date) if instance.passport_expiry_date else None
+        ret['dob'] = str(instance.date_of_birth) if instance.date_of_birth else None
+        if not ret.get('avatar_url') and ret.get('avatar'):
+            ret['avatar_url'] = ret['avatar']
+        return ret
+
 
 class AdminLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
     password = serializers.CharField(required=True, write_only=True)
+
+
+class AdminLoginResponseUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    email = serializers.EmailField()
+    display_name = serializers.CharField()
+    role = serializers.CharField()
+
+
+class AdminLoginResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = AdminLoginResponseUserSerializer()
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(required=False, default="success")
+    message = serializers.CharField()
+
+
+class PasswordResetRequestResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    email = serializers.EmailField()
+    valid_hours = serializers.IntegerField()
+
+
+class PasswordResetValidateResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField()
+    email = serializers.EmailField(required=False)
+    display_name = serializers.CharField(required=False)
+    detail = serializers.CharField(required=False)
+
+
+class OTPRequestResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    email = serializers.EmailField()
+    expires_in = serializers.IntegerField()
+
+
+class OTPVerifyResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField()
+    message = serializers.CharField()
+    reset_token = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class StudentLogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(required=False, allow_blank=True, help_text="JWT refresh token to blacklist")
+
+
+class StudentDocumentUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(required=True, help_text="Document or image file to upload")
+    document_type = serializers.CharField(required=False, default="other", help_text="Document category (e.g. passport, aadhar, bank_passbook, degree_certificate, cv, other)")
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Title or label for the document")
+
+
+class StudentDocumentUploadResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    document = StudentDocumentSerializer()
+
+
+class StudentCourseEnrollSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField(required=False, allow_null=True, help_text="ID of the course")
+    course_slug = serializers.CharField(required=False, allow_blank=True, help_text="Slug of the course")
+
+
+class StudentCourseEnrollResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    enrollment = serializers.DictField()
+
+
+class StudentCoursesListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    results = serializers.ListField(child=serializers.DictField())
+
+
+class StudentResourcePurchaseSerializer(serializers.Serializer):
+    resource_id = serializers.IntegerField(required=False, allow_null=True, help_text="ID of the paid resource")
+    resource_slug = serializers.CharField(required=False, allow_blank=True, help_text="Slug of the paid resource")
+    order_id = serializers.CharField(required=False, allow_blank=True, help_text="External checkout or transaction ID")
+    amount_paid = serializers.DecimalField(required=False, max_digits=10, decimal_places=2, help_text="Amount paid")
+    payment_status = serializers.CharField(required=False, default="paid", help_text="Payment status: paid, pending, failed")
+    payment_method = serializers.CharField(required=False, default="demo", help_text="Payment method used")
+
+
+class StudentResourcePurchaseResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    receipt_emailed = serializers.BooleanField()
+    purchase = serializers.DictField()
+
+
+class StudentResourceAccessResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    purchase = serializers.DictField()
+
+
+class StudentPurchasedResourcesListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    results = serializers.ListField(child=serializers.DictField())
+
+
+class StudentPurchaseHistoryListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    results = serializers.ListField(child=serializers.DictField())
+
+
+class StudentPaymentDetailsSummarySerializer(serializers.Serializer):
+    total_spent = serializers.CharField()
+    total_spent_formatted = serializers.CharField()
+    currency = serializers.CharField()
+    completed_payments = serializers.IntegerField()
+    pending_payments = serializers.IntegerField()
+    total_transactions = serializers.IntegerField()
+
+
+class StudentPaymentDetailsNoticeSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    note = serializers.CharField()
+
+
+class StudentPaymentDetailsResponseSerializer(serializers.Serializer):
+    summary = StudentPaymentDetailsSummarySerializer()
+    payment_methods_notice = StudentPaymentDetailsNoticeSerializer()
+    results = serializers.ListField(child=serializers.DictField())
+
+
+class StudentReceiptsListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    results = serializers.ListField(child=serializers.DictField())
+
+
+class StudentReceiptResendResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    receipt_emailed = serializers.BooleanField()
+    receipt_emailed_at = serializers.DateTimeField(allow_null=True)
+
 

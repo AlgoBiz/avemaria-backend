@@ -143,6 +143,20 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayRequestDuration': True,
+        'filter': True,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+    },
+    'ENUM_NAME_OVERRIDES': {
+        'EnquiryStatusEnum': 'apps.enquiries.models.Enquiry.STATUS_CHOICES',
+        'ResourcePurchaseStatusEnum': 'apps.resources.models.ResourcePurchase.STATUS_CHOICES',
+        'CourseEnrollmentStatusEnum': 'apps.courses.models.CourseEnrollment.STATUS_CHOICES',
+        'StudentStatusEnum': 'apps.students.models.Student.STATUS_CHOICES',
+    },
 }
 
 # CORS configuration

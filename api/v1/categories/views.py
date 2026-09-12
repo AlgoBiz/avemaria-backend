@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from drf_spectacular.utils import extend_schema
 from apps.categories.models import Category
 from .serializers import CategorySerializer
 
@@ -34,7 +35,13 @@ class CategoryViewSet(viewsets.ModelViewSet):
         instance.is_deleted = True
         instance.save(update_fields=['is_deleted'])
 
+    @extend_schema(
+        summary="Create category",
+        description="Create category endpoint at /api/v1/courses/categories/create/",
+        request=CategorySerializer,
+        responses={201: CategorySerializer}
+    )
     @action(detail=False, methods=['post'], url_path='create')
     def create_category(self, request, *args, **kwargs):
-        """Create category endpoint at /api/v1/categories/create/"""
+        """Create category endpoint at /api/v1/courses/categories/create/"""
         return self.create(request, *args, **kwargs)

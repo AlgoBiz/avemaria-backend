@@ -71,6 +71,8 @@ class Course(BaseModel):
     # Faculty details
     faculty_name = models.CharField(max_length=150, blank=True, null=True, default="Dr. Anil Mathew, PhD")
     faculty_title = models.CharField(max_length=150, blank=True, null=True, default="Clinical Biochemistry Lead")
+    faculty_qualification = models.CharField(max_length=255, blank=True, default="", help_text="e.g. PhD (Clinical Biochemistry), FRCPath, HCPC Reg")
+    faculty_experience = models.CharField(max_length=150, blank=True, default="", help_text="e.g. 15+ Years Clinical & Academic Experience")
     faculty_bio = models.TextField(blank=True, null=True)
     faculty_image = models.ImageField(upload_to='faculty/', null=True, blank=True)
 
@@ -80,7 +82,13 @@ class Course(BaseModel):
         blank=True,
         help_text="List of modules and syllabus topics"
     )
-    schedule_details = models.TextField(blank=True, null=True)
+    weekly_session_commitment = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Weekly Session Commitment badge text, e.g. 4 sessions / week (8 hours total)"
+    )
+    schedule_details = models.TextField(blank=True, null=True, help_text="Schedule summary narrative")
 
     # Metadata & Metrics
     modules_count = models.PositiveIntegerField(default=6)
@@ -99,6 +107,14 @@ class Course(BaseModel):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
+        if not self.faculty_qualification and self.faculty_title:
+            self.faculty_qualification = self.faculty_title
+        elif not self.faculty_title and self.faculty_qualification:
+            self.faculty_title = self.faculty_qualification
+        if self.curriculum and isinstance(self.curriculum, list) and len(self.curriculum) > 0:
+            self.modules_count = len(self.curriculum)
+        if self.highlights and isinstance(self.highlights, list) and len(self.highlights) > 0:
+            self.highlights_count = len(self.highlights)
         super().save(*args, **kwargs)
 
     def __str__(self):
