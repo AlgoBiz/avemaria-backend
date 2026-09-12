@@ -1,8 +1,57 @@
+# ==============================================================================
+# Avemaria Career Guidance Center — Backend Requirements & Package Details
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Core Web Framework & REST APIs
+# ------------------------------------------------------------------------------
+
+# Django: High-level Python web framework providing ORM, database migrations,
+# user authentication, admin site, email dispatch, and routing infrastructure.
 Django>=3.2.25,<4.0
+
+# Django REST Framework (DRF): Powerful and flexible toolkit for building RESTful
+# APIs, serializers, parsers, viewsets, and pagination across all Avemaria endpoints.
 djangorestframework>=3.15.1
+
+# Django REST Framework SimpleJWT: JSON Web Token (JWT) authentication backend
+# providing secure user/admin login, token refresh, and bearer authorization.
 djangorestframework-simplejwt>=5.2.2
+
+# Django CORS Headers: Middleware handling Cross-Origin Resource Sharing (CORS)
+# to allow secure API requests from frontend web clients (e.g. Next.js / Vercel).
 django-cors-headers>=3.13.0
+
+# Django Filter: Declarative dynamic queryset filtering system for filtering courses,
+# blogs, gallery photos, and study resources by category, status, and query parameters.
 django-filter>=23.5
+
+# DRF Spectacular: OpenAPI 3.0 schema generation powering interactive Swagger UI
+# (/api/docs/) and ReDoc (/api/redoc/) documentation for API consumers.
 drf-spectacular>=0.24.2
+
+# ------------------------------------------------------------------------------
+# Media, Images & Document Generation
+# ------------------------------------------------------------------------------
+
+# Pillow: Python Imaging Library used for processing, resizing, and validating
+# image uploads (course cover images, gallery photos, blog banners, faculty portraits).
 Pillow>=9.5.0
+
+# ReportLab: Document and PDF generation library used in api/v1/students/views.py
+# for generating downloadable student tax invoices, receipts, and GST breakdown summaries.
+reportlab>=3.6.13
+
+# ------------------------------------------------------------------------------
+# Environment, Database & Production
+# ------------------------------------------------------------------------------
+
+# Python Decouple: Environment variable management for securely separating settings
+# and secret credentials (SECRET_KEY, DEBUG, ALLOWED_HOSTS, EMAIL_HOST_PASSWORD) from code.
 python-decouple>=3.8
+
+# Psycopg2-binary: PostgreSQL database adapter for connecting to production databases.
+psycopg2-binary>=2.9.9
+
+# WhiteNoise: Static file serving directly through WSGI/ASGI for production deployments.
+whitenoise>=6.5.0
