@@ -8,23 +8,36 @@ from api.v1.categories.serializers import CategorySerializer
 
 class CourseListSerializer(serializers.ModelSerializer):
     category_title = serializers.CharField(source='category.title', read_only=True)
-    category_slug = serializers.CharField(source='category.slug', read_only=True)
+    cover_image = serializers.SerializerMethodField()
     fee_formatted = serializers.SerializerMethodField()
-    schedule_display = serializers.SerializerMethodField()
     faculty_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
         fields = (
-            'id', 'title', 'slug', 'category', 'category_title', 'category_slug',
-            'overview_description', 'summary', 'duration', 'level', 'fee', 'currency',
-            'fee_formatted', 'schedule_display', 'learning_mode',
-            'cover_image', 'modules_count', 'highlights_count', 'rating',
-            'reviews_count', 'faculty_name', 'faculty_title', 'faculty_qualification',
-            'faculty_experience', 'faculty_display', 'weekly_session_commitment',
-            'faqs', 'is_featured', 'is_published', 'is_active', 'is_deleted',
-            'created_at'
+            'id',
+            'slug',
+            'title',
+            'category_title',
+            'cover_image',
+            'fee_formatted',
+            'summary',
+            'modules_count',
+            'highlights_count',
+            'level',
+            'duration',
+            'learning_mode',
+            'faculty_display',
         )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_cover_image(self, obj):
+        if obj.cover_image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.cover_image.url)
+            return obj.cover_image.url
+        return None
 
     @extend_schema_field(serializers.CharField())
     def get_fee_formatted(self, obj):
@@ -33,21 +46,23 @@ class CourseListSerializer(serializers.ModelSerializer):
         return fee_str
 
     @extend_schema_field(serializers.CharField())
-    def get_schedule_display(self, obj):
-        parts = []
-        if obj.duration:
-            parts.append(obj.duration)
-        if obj.learning_mode:
-            parts.append(obj.learning_mode.strip().capitalize())
-        return " • ".join(parts)
-
-    @extend_schema_field(serializers.CharField())
     def get_faculty_display(self, obj):
         name = obj.faculty_name or ''
         qual = obj.faculty_qualification or obj.faculty_title or ''
         if name and qual:
             return f"{name} ({qual})"
         return name or qual
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
+        return ordered_ret
 
 
 class CourseDetailSerializer(serializers.ModelSerializer):
