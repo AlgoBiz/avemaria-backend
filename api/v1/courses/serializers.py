@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
@@ -69,17 +70,62 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = (
-            'id', 'title', 'slug', 'category', 'category_id', 'overview_description', 'summary',
-            'duration', 'level', 'fee', 'currency', 'fee_formatted', 'schedule_display',
-            'learning_mode', 'cover_image',
-            'highlights', 'eligibility_criteria', 'eligibility_note', 'course_outcomes',
-            'faqs', 'meta_description', 'meta_keywords',
-            'faculty_name', 'faculty_title', 'faculty_qualification', 'faculty_experience',
-            'faculty_display', 'faculty_bio', 'faculty_image',
-            'curriculum', 'weekly_session_commitment', 'schedule_details',
-            'modules_count', 'highlights_count', 'rating', 'reviews_count',
-            'enrolled_count', 'is_published', 'is_featured', 'is_active', 'is_deleted',
-            'created_at', 'updated_at'
+            # 1. Course Overview & Core Details (Screenshot 1)
+            'id',
+            'title',
+            'category',
+            'category_id',
+            'summary',
+            'overview_description',
+            'duration',
+            'level',
+            'fee',
+            'currency',
+            'fee_formatted',
+            'learning_mode',
+            'cover_image',
+
+            # 2. Highlights, Eligibility & Learning Outcomes (Screenshot 2)
+            'highlights',
+            'eligibility_note',
+            'eligibility_criteria',
+            'course_outcomes',
+
+            # 3. Curriculum & Syllabus (Screenshot 3 / Tab b)
+            'curriculum',
+
+            # 4. Course Schedule & Timetable (Screenshot 4 / Tab c)
+            'weekly_session_commitment',
+            'schedule_details',
+            'schedule_display',
+
+            # 5. Faculty Details (Screenshot 5 / Tab d)
+            'faculty_name',
+            'faculty_title',
+            'faculty_qualification',
+            'faculty_experience',
+            'faculty_display',
+            'faculty_bio',
+            'faculty_image',
+
+            # 6. FAQs, SEO & Metadata (Tabs e & f)
+            'faqs',
+            'meta_description',
+            'meta_keywords',
+
+            # 7. Metrics, Status & Timestamps
+            'slug',
+            'modules_count',
+            'highlights_count',
+            'rating',
+            'reviews_count',
+            'enrolled_count',
+            'is_published',
+            'is_featured',
+            'is_active',
+            'is_deleted',
+            'created_at',
+            'updated_at',
         )
 
     @extend_schema_field(serializers.CharField())
@@ -105,8 +151,20 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             return f"{name} ({qual})"
         return name or qual
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
+        return ordered_ret
+
 
 class CourseWriteSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.title', read_only=True)
     highlights = serializers.JSONField(required=False, default=list)
     eligibility_criteria = serializers.JSONField(required=False, default=list)
     course_outcomes = serializers.JSONField(required=False, default=list)
@@ -116,8 +174,63 @@ class CourseWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = '__all__'
+        fields = (
+            # 1. Course Overview & Core Details (Screenshot 1)
+            'id',
+            'title',
+            'category',
+            'category_name',
+            'summary',
+            'overview_description',
+            'duration',
+            'level',
+            'fee',
+            'currency',
+            'learning_mode',
+            'cover_image',
+
+            # 2. Highlights, Eligibility & Learning Outcomes (Screenshot 2)
+            'highlights',
+            'eligibility_note',
+            'eligibility_criteria',
+            'course_outcomes',
+
+            # 3. Curriculum & Syllabus (Screenshot 3 / Tab b)
+            'curriculum',
+
+            # 4. Course Schedule & Timetable (Screenshot 4 / Tab c)
+            'weekly_session_commitment',
+            'schedule_details',
+
+            # 5. Faculty Details (Screenshot 5 / Tab d)
+            'faculty_name',
+            'faculty_title',
+            'faculty_qualification',
+            'faculty_experience',
+            'faculty_bio',
+            'faculty_image',
+
+            # 6. FAQs, SEO & Metadata (Tabs e & f)
+            'faqs',
+            'meta_description',
+            'meta_keywords',
+
+            # 7. Metrics, Status & Timestamps
+            'slug',
+            'modules_count',
+            'highlights_count',
+            'rating',
+            'reviews_count',
+            'enrolled_count',
+            'is_published',
+            'is_featured',
+            'is_active',
+            'is_deleted',
+            'created_at',
+            'updated_at',
+        )
         extra_kwargs = {
+            'slug': {'required': False, 'allow_blank': True, 'read_only': True},
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
             'is_published': {'default': True, 'required': False},
@@ -305,6 +418,17 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 'category': 'Course category is required. A category must be created or selected before adding a course.'
             })
         return attrs
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
+        return ordered_ret
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):
