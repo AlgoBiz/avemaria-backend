@@ -4,6 +4,8 @@ urlpatterns = [
     path('auth/', include('api.v1.auth.urls')),
     path('dashboard/', include('api.v1.dashboard.urls')),
     path('courses/', include('api.v1.courses.urls')),
+    path('faculty/', include('api.v1.faculty.urls')),
+    path('faculties/', include('api.v1.faculty.urls')),
     path('resources/', include('api.v1.resources.urls')),
     path('testimonials/', include('api.v1.testimonials.urls')),
     path('gallery/', include('api.v1.gallery.urls')),

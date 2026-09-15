@@ -4,6 +4,7 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.courses.models import Course
 from apps.categories.models import Category
+from apps.faculty.models import Faculty
 from api.v1.categories.serializers import CategorySerializer
 
 class CourseListSerializer(serializers.ModelSerializer):
@@ -115,6 +116,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             'schedule_display',
 
             # 5. Faculty Details (Screenshot 5 / Tab d)
+            'faculty',
             'faculty_name',
             'faculty_title',
             'faculty_qualification',
@@ -180,6 +182,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
 class CourseWriteSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.title', read_only=True)
+    faculty = serializers.PrimaryKeyRelatedField(queryset=Faculty.objects.filter(is_deleted=False), required=False, allow_null=True)
     highlights = serializers.JSONField(required=False, default=list)
     eligibility_criteria = serializers.JSONField(required=False, default=list)
     course_outcomes = serializers.JSONField(required=False, default=list)
@@ -218,6 +221,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'schedule_details',
 
             # 5. Faculty Details (Screenshot 5 / Tab d)
+            'faculty',
             'faculty_name',
             'faculty_title',
             'faculty_qualification',
@@ -362,37 +366,44 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                     data['cover_image'] = data[alias]
                     break
 
-        # 11. Faculty aliases
-        if not data.get('faculty_name'):
-            for alias in ['faculty_full_name', 'instructor_name']:
-                if data.get(alias):
-                    data['faculty_name'] = data[alias]
-                    break
+        # 11. Faculty resolution & validation (must exist in Faculty list)
+        fac_val = data.get('faculty') or data.get('faculty_id') or data.get('faculty_name') or data.get('faculty_full_name') or data.get('instructor_name')
+        if isinstance(fac_val, dict):
+            fac_val = fac_val.get('id') or fac_val.get('name')
 
-        if not data.get('faculty_qualification') and not data.get('faculty_title'):
-            for alias in ['faculty_qualification', 'qualification', 'faculty_title']:
-                if data.get(alias):
-                    data['faculty_qualification'] = data[alias]
-                    data['faculty_title'] = data[alias]
-                    break
+        if fac_val is not None and str(fac_val).strip():
+            raw_fac_str = str(fac_val).strip()
+            found_faculty = None
 
-        if not data.get('faculty_experience'):
-            for alias in ['experience', 'years_of_experience']:
-                if data.get(alias):
-                    data['faculty_experience'] = data[alias]
-                    break
+            if raw_fac_str.isdigit():
+                found_faculty = Faculty.objects.filter(id=int(raw_fac_str), is_deleted=False).first()
+            else:
+                found_faculty = Faculty.objects.filter(is_deleted=False).filter(
+                    models.Q(name__iexact=raw_fac_str) |
+                    models.Q(name__icontains=raw_fac_str)
+                ).first()
 
-        if not data.get('faculty_bio'):
-            for alias in ['faculty_description', 'instructor_bio']:
-                if data.get(alias):
-                    data['faculty_bio'] = data[alias]
-                    break
+            if not found_faculty:
+                raise serializers.ValidationError({
+                    'faculty': f"Faculty '{raw_fac_str}' does not exist in the faculty list. Please select an existing faculty from /api/v1/faculty/ or create it first."
+                })
 
-        if not data.get('faculty_image'):
-            for alias in ['faculty_portrait', 'faculty_photo', 'instructor_photo']:
-                if data.get(alias):
-                    data['faculty_image'] = data[alias]
-                    break
+            data['faculty'] = found_faculty.id
+            data['faculty_name'] = found_faculty.name
+            if not data.get('faculty_title'):
+                data['faculty_title'] = found_faculty.title or ''
+            if not data.get('faculty_qualification'):
+                data['faculty_qualification'] = found_faculty.qualification or ''
+            if not data.get('faculty_experience'):
+                data['faculty_experience'] = found_faculty.experience or ''
+            if not data.get('faculty_bio'):
+                data['faculty_bio'] = found_faculty.bio or ''
+            if not data.get('faculty_image') and found_faculty.image:
+                data['faculty_image'] = found_faculty.image
+        elif not getattr(self, 'partial', False):
+            raise serializers.ValidationError({
+                'faculty': "Faculty is required. Please select an existing faculty from the faculty list (/api/v1/faculty/)."
+            })
 
         # 12. Schedule & Commitment aliases
         if not data.get('weekly_session_commitment'):

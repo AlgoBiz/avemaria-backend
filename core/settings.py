@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.categories',
     'apps.courses',
+    'apps.faculty',
     'apps.resources',
     'apps.testimonials',
     'apps.gallery',

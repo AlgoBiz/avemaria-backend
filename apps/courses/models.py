@@ -69,8 +69,16 @@ class Course(BaseModel):
     )
 
     # Faculty details
-    faculty_name = models.CharField(max_length=150, blank=True, null=True, default="Dr. Anil Mathew, PhD")
-    faculty_title = models.CharField(max_length=150, blank=True, null=True, default="Clinical Biochemistry Lead")
+    faculty = models.ForeignKey(
+        'faculty.Faculty',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='courses',
+        help_text="Selected Faculty member from the faculty list"
+    )
+    faculty_name = models.CharField(max_length=150, blank=True, default="")
+    faculty_title = models.CharField(max_length=150, blank=True, default="")
     faculty_qualification = models.CharField(max_length=255, blank=True, default="", help_text="e.g. PhD (Clinical Biochemistry), FRCPath, HCPC Reg")
     faculty_experience = models.CharField(max_length=150, blank=True, default="", help_text="e.g. 15+ Years Clinical & Academic Experience")
     faculty_bio = models.TextField(blank=True, null=True)
@@ -106,7 +114,13 @@ class Course(BaseModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            base_slug = slugify(self.title) or 'course'
+            unique_slug = base_slug
+            counter = 1
+            while Course.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
         if not self.faculty_qualification and self.faculty_title:
             self.faculty_qualification = self.faculty_title
         elif not self.faculty_title and self.faculty_qualification:
