@@ -20,8 +20,8 @@ class FacultyViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_published', 'is_featured', 'department']
     search_fields = ['name', 'title', 'qualification', 'department', 'bio']
-    ordering_fields = ['display_order', 'name', 'created_at']
-    ordering = ['display_order', '-created_at', '-id']
+    ordering_fields = ['created_at', 'display_order', 'name']
+    ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
         if self.action == 'list':

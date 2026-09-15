@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
 from .serializers import (
     PaidResourceSerializer,
+    ResourceListSerializer,
     ResourcePDFSerializer,
     ResourcePDFUploadSerializer,
     ResourceCategorySerializer,
@@ -33,6 +34,11 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description', 'course_name', 'category']
     ordering_fields = ['price', 'created_at']
     ordering = ['-created_at', '-id']
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ResourceListSerializer
+        return PaidResourceSerializer
 
     def get_queryset(self):
         qs = super().get_queryset().filter(is_deleted=False)

@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
@@ -7,7 +8,7 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ResourceCategory
-        fields = ('id', 'name', 'slug', 'description', 'resources_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
+        fields = ('id', 'name', 'resources_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False}
@@ -33,20 +34,62 @@ class ResourcePDFSerializer(serializers.ModelSerializer):
         model = ResourcePDF
         fields = ('id', 'title', 'file', 'file_size', 'is_active', 'is_deleted', 'uploaded_at', 'created_at')
 
+
+class ResourceListSerializer(serializers.ModelSerializer):
+    pdf_count = serializers.IntegerField(read_only=True)
+    pdf_count_display = serializers.SerializerMethodField()
+    highlights = serializers.JSONField(read_only=True)
+
+    class Meta:
+        model = PaidResource
+        fields = (
+            'id',
+            'category',
+            'price',
+            'title',
+            'description',
+            'highlights',
+            'pdf_count',
+            'pdf_count_display'
+        )
+
+    @extend_schema_field(serializers.CharField())
+    def get_pdf_count_display(self, obj):
+        return f"{obj.pdf_count} PDFs attached"
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        return ordered_ret
+
+
 class PaidResourceSerializer(serializers.ModelSerializer):
     pdf_files = ResourcePDFSerializer(many=True, read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     category = serializers.CharField(required=True, allow_blank=False)
     pdf_count_display = serializers.SerializerMethodField()
-    price_formatted = serializers.SerializerMethodField()
     highlights = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = PaidResource
         fields = (
-            'id', 'title', 'slug', 'course_name', 'category', 'price', 'currency',
-            'price_formatted', 'description', 'highlights', 'pdf_count', 'pdf_count_display',
-            'pdf_files', 'is_active', 'is_deleted', 'created_at', 'updated_at'
+            'id',
+            'category',
+            'price',
+            'title',
+            'description',
+            'highlights',
+            'pdf_count',
+            'pdf_count_display',
+            'pdf_files',
+            'course_name',
+            'is_active',
+            'is_deleted',
+            'created_at',
+            'updated_at'
         )
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
@@ -64,6 +107,14 @@ class PaidResourceSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_pdf_count_display(self, obj):
         return f"{obj.pdf_count} PDFs attached"
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        return ordered_ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):

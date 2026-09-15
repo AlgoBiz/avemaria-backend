@@ -12,12 +12,11 @@ class BlogCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = BlogCategory
         fields = (
-            'id', 'name', 'category_name', 'slug', 'description',
+            'id', 'name', 'category_name', 'description',
             'articles_count', 'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
         extra_kwargs = {
             'name': {'required': False},
-            'slug': {'read_only': True},
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False}
         }

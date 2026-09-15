@@ -10,12 +10,11 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = GalleryCategory
         fields = (
-            'id', 'name', 'category_name', 'slug', 'description',
+            'id', 'name', 'category_name', 'description',
             'photos_count', 'is_active', 'created_at', 'updated_at'
         )
         extra_kwargs = {
             'name': {'required': False},
-            'slug': {'read_only': True},
         }
 
     def to_internal_value(self, data):

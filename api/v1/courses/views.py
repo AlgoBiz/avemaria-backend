@@ -75,7 +75,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     def list_faculties(self, request):
         """Returns distinct faculty profiles across all published courses for 'Select Existing Faculty' modal"""
         from apps.faculty.models import Faculty
-        faculty_qs = Faculty.objects.filter(is_deleted=False, is_published=True)
+        faculty_qs = Faculty.objects.filter(is_deleted=False, is_published=True).order_by('-created_at', '-id')
         seen = set()
         faculties = []
 
@@ -93,7 +93,7 @@ class CourseViewSet(viewsets.ModelViewSet):
                     'faculty_image': f.image.url if f.image else None
                 })
 
-        courses = Course.objects.filter(is_deleted=False).exclude(faculty_name='').exclude(faculty_name__isnull=True)
+        courses = Course.objects.filter(is_deleted=False).exclude(faculty_name='').exclude(faculty_name__isnull=True).order_by('-created_at', '-id')
         for c in courses:
             name = (c.faculty_name or '').strip()
             if name and name.lower() not in seen:

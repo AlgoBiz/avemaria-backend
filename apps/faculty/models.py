@@ -19,7 +19,7 @@ class Faculty(BaseModel):
     class Meta:
         verbose_name = 'Faculty'
         verbose_name_plural = 'Faculties'
-        ordering = ['display_order', '-created_at', '-id']
+        ordering = ['-created_at', '-id']
 
     def __str__(self):
         return self.faculty_display

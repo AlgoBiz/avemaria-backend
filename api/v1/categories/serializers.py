@@ -9,7 +9,7 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = (
-            'id', 'title', 'slug', 'cover_image',
+            'id', 'title', 'cover_image',
             'description', 'programmes_count', 'programmes_label', 'order',
             'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
