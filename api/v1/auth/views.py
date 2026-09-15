@@ -6,6 +6,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import strip_tags
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.db.models import Q, Sum
@@ -198,7 +199,10 @@ class PasswordResetRequestView(APIView):
 
         try:
             html_content = render_to_string('emails/admin_password_reset.html', context)
-            text_content = render_to_string('emails/admin_password_reset.txt', context)
+            try:
+                text_content = render_to_string('emails/admin_password_reset.txt', context)
+            except Exception:
+                text_content = strip_tags(html_content)
 
             subject = "Reset Your Admin Password — Avemaria Admin Portal"
             from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', settings.EMAIL_HOST_USER)
@@ -408,7 +412,10 @@ class OTPRequestView(APIView):
 
         try:
             html_content = render_to_string('emails/admin_otp_email.html', context)
-            text_content = render_to_string('emails/admin_otp_email.txt', context)
+            try:
+                text_content = render_to_string('emails/admin_otp_email.txt', context)
+            except Exception:
+                text_content = strip_tags(html_content)
 
             subject = f"{otp_code} is your Avemaria Admin Verification Code"
             from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', settings.EMAIL_HOST_USER)
@@ -1445,7 +1452,10 @@ class StudentOTPRequestView(APIView):
 
         try:
             html_content = render_to_string('emails/student_otp_email.html', context)
-            text_content = render_to_string('emails/student_otp_email.txt', context)
+            try:
+                text_content = render_to_string('emails/student_otp_email.txt', context)
+            except Exception:
+                text_content = strip_tags(html_content)
 
             subject = f"{otp_code} is your Avemaria verification code"
             from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', settings.EMAIL_HOST_USER)

@@ -4,12 +4,17 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.utils import extend_schema
 from apps.categories.models import Category
-from .serializers import CategorySerializer
+from .serializers import CategorySerializer, CategoryListSerializer
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.filter(is_deleted=False)
     serializer_class = CategorySerializer
     lookup_field = 'slug'
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return CategoryListSerializer
+        return CategorySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description']

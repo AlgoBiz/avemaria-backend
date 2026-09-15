@@ -5,14 +5,11 @@ from apps.categories.models import Category
 class CategorySerializer(serializers.ModelSerializer):
     programmes_count = serializers.IntegerField(read_only=True)
     programmes_label = serializers.SerializerMethodField()
-    cover_image_url = serializers.SerializerMethodField()
-    image = serializers.SerializerMethodField()
-    name = serializers.CharField(source='title', read_only=True)
 
     class Meta:
         model = Category
         fields = (
-            'id', 'title', 'name', 'slug', 'cover_image', 'cover_image_url', 'image',
+            'id', 'title', 'slug', 'cover_image',
             'description', 'programmes_count', 'programmes_label', 'order',
             'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
@@ -56,21 +53,26 @@ class CategorySerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
+    @extend_schema_field(serializers.CharField())
+    def get_programmes_label(self, obj):
+        count = obj.programmes_count
+        return f"{count} {'Programme' if count == 1 else 'Programmes'}"
+
+
+class CategoryListSerializer(serializers.ModelSerializer):
+    cover_image = serializers.SerializerMethodField()
+    programmes_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Category
+        fields = ('title', 'cover_image', 'description', 'programmes_count')
+
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_cover_image_url(self, obj):
+    def get_cover_image(self, obj):
         if obj.cover_image:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.cover_image.url)
             return obj.cover_image.url
         return None
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_image(self, obj):
-        return self.get_cover_image_url(obj)
-
-    @extend_schema_field(serializers.CharField())
-    def get_programmes_label(self, obj):
-        count = obj.programmes_count
-        return f"{count} {'Programme' if count == 1 else 'Programmes'}"
 
