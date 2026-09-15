@@ -7,11 +7,13 @@ class GalleryCategory(BaseModel):
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, blank=True)
     description = models.TextField(blank=True, default='')
+    image = models.ImageField(upload_to='gallery/categories/', blank=True, null=True)
+    alt_text = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         verbose_name = 'Gallery Category'
         verbose_name_plural = 'Gallery Categories'
-        ordering = ['id']
+        ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
         if not self.slug:

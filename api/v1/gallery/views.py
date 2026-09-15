@@ -12,9 +12,13 @@ from .serializers import GalleryItemSerializer, GalleryCategorySerializer
 
 
 class GalleryCategoryViewSet(viewsets.ModelViewSet):
-    queryset = GalleryCategory.objects.filter(is_deleted=False).order_by('id')
+    queryset = GalleryCategory.objects.filter(is_deleted=False).order_by('-created_at', '-id')
     serializer_class = GalleryCategorySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'created_at', 'id']
+    ordering = ['-created_at', '-id']
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:

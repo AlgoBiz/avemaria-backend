@@ -4,17 +4,23 @@ from apps.gallery.models import GalleryItem, GalleryCategory
 
 
 class GalleryCategorySerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='name', required=False)
+    category = serializers.CharField(source='name', required=False)
+    name = serializers.CharField(required=False, write_only=True)
+    description = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
+    image = serializers.ImageField(required=False, allow_null=True)
+    alt_text = serializers.CharField(required=False, allow_blank=True, default='')
     photos_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = GalleryCategory
         fields = (
-            'id', 'name', 'category_name', 'description',
-            'photos_count', 'is_active', 'created_at', 'updated_at'
+            'id', 'category', 'name', 'description',
+            'image', 'alt_text', 'photos_count',
+            'is_active', 'created_at', 'updated_at'
         )
         extra_kwargs = {
-            'name': {'required': False},
+            'name': {'write_only': True, 'required': False},
+            'description': {'write_only': True, 'required': False},
         }
 
     def to_internal_value(self, data):
@@ -25,9 +31,22 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
         else:
             mutable_data = dict(data)
 
-        # Support "category_name" alias from UI modal
-        if not mutable_data.get('name') and mutable_data.get('category_name'):
-            mutable_data['name'] = mutable_data['category_name']
+        # Support "category" or "category_name" alias from UI / client
+        if not mutable_data.get('name'):
+            if mutable_data.get('category'):
+                mutable_data['name'] = mutable_data['category']
+            elif mutable_data.get('category_name'):
+                mutable_data['name'] = mutable_data['category_name']
+
+        if not mutable_data.get('category') and mutable_data.get('name'):
+            mutable_data['category'] = mutable_data['name']
+
+        # Support "photo" or "file" alias for "image"
+        if not mutable_data.get('image'):
+            if mutable_data.get('photo'):
+                mutable_data['image'] = mutable_data['photo']
+            elif mutable_data.get('file'):
+                mutable_data['image'] = mutable_data['file']
 
         return super().to_internal_value(mutable_data)
 
@@ -36,33 +55,65 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Category name is required.")
         return value.strip()
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        # Ensure "category" is populated
+        if not ret.get('category') and hasattr(instance, 'name'):
+            ret['category'] = instance.name
+
+        request = self.context.get('request')
+        image_url = None
+        alt_text = instance.alt_text or ''
+
+        # 1. Use category's own uploaded image if available
+        if instance.image:
+            image_url = request.build_absolute_uri(instance.image.url) if request else instance.image.url
+        else:
+            # 2. Fallback to latest photo in this category
+            from apps.gallery.models import GalleryItem
+            from django.db.models import Q
+            latest_item = GalleryItem.objects.filter(
+                Q(category__iexact=instance.name) | Q(category_slug__iexact=instance.slug),
+                is_deleted=False
+            ).order_by('-created_at', '-id').first()
+            if latest_item:
+                if latest_item.image:
+                    image_url = request.build_absolute_uri(latest_item.image.url) if request else latest_item.image.url
+                if not alt_text:
+                    alt_text = latest_item.alt_text or latest_item.title or latest_item.caption or ''
+
+        ret['image'] = image_url
+        ret['alt_text'] = alt_text
+
+        # Exclude name and description from response
+        ret.pop('name', None)
+        ret.pop('description', None)
+
+        return ret
+
 
 class GalleryItemSerializer(serializers.ModelSerializer):
-    title = serializers.CharField(required=False, allow_blank=True)
-    caption = serializers.CharField(required=False, allow_blank=True)
-    image_url = serializers.SerializerMethodField()
+    title = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    caption = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    order = serializers.IntegerField(required=False, default=0, write_only=True)
+    category_slug = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = GalleryItem
         fields = (
-            'id', 'title', 'caption', 'category', 'category_slug',
-            'image', 'image_url', 'alt_text', 'order',
-            'is_active', 'is_deleted', 'created_at', 'updated_at'
+            'id', 'category', 'image', 'alt_text',
+            'is_active', 'is_deleted', 'created_at', 'updated_at',
+            'title', 'caption', 'order', 'category_slug'
         )
         extra_kwargs = {
             'image': {'required': False},
             'is_active': {'default': True, 'required': False},
-            'is_deleted': {'default': False, 'required': False}
+            'is_deleted': {'default': False, 'required': False},
+            'title': {'write_only': True},
+            'caption': {'write_only': True},
+            'order': {'write_only': True},
+            'category_slug': {'write_only': True},
         }
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_image_url(self, obj):
-        if obj.image:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
-        return None
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -79,6 +130,14 @@ class GalleryItemSerializer(serializers.ModelSerializer):
             mutable_data['caption'] = title
         elif not title and caption:
             mutable_data['title'] = caption
+
+        # Support "description" alias for "alt_text"
+        if not mutable_data.get('alt_text') and mutable_data.get('description'):
+            mutable_data['alt_text'] = mutable_data['description']
+
+        if not mutable_data.get('title') and not mutable_data.get('caption') and mutable_data.get('alt_text'):
+            mutable_data['title'] = mutable_data['alt_text']
+            mutable_data['caption'] = mutable_data['alt_text']
 
         # Support "default_category" / "category_name" for category
         if not mutable_data.get('category'):
@@ -121,17 +180,11 @@ class GalleryItemSerializer(serializers.ModelSerializer):
             elif mutable_data.get('file'):
                 mutable_data['image'] = mutable_data['file']
 
-        # Support "description" alias for "alt_text"
-        if not mutable_data.get('alt_text') and mutable_data.get('description'):
-            mutable_data['alt_text'] = mutable_data['description']
-
         return super().to_internal_value(mutable_data)
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # Ensure title and caption are both populated for the frontend card
-        if not ret.get('title') and ret.get('caption'):
-            ret['title'] = ret['caption']
-        if not ret.get('caption') and ret.get('title'):
-            ret['caption'] = ret['title']
+        # Exclude unwanted fields from response
+        for field in ('title', 'caption', 'category_slug', 'image_url', 'order'):
+            ret.pop(field, None)
         return ret
