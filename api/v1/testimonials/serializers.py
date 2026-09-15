@@ -3,43 +3,26 @@ from drf_spectacular.utils import extend_schema_field
 from apps.testimonials.models import Testimonial
 
 class TestimonialSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(source='candidate_name', required=False)
-    photo_url = serializers.SerializerMethodField()
-    avatar = serializers.SerializerMethodField()
+    course_name = serializers.CharField(source='programme_name', required=False, allow_blank=True)
+    review = serializers.CharField(source='quote', required=False)
 
     class Meta:
         model = Testimonial
         fields = (
-            'id', 'candidate_name', 'name', 'initials', 'programme_name', 'result_placement',
-            'country', 'quote', 'rating', 'photo', 'photo_url', 'avatar',
-            'is_published', 'is_student_submission', 'is_featured', 'is_active',
-            'is_deleted', 'created_at', 'updated_at'
+            'id', 'candidate_name', 'initials', 'course_name', 'result_placement',
+            'country', 'review', 'rating', 'photo',
+            'is_published', 'is_student_submission',
+            'created_at', 'updated_at'
         )
         read_only_fields = ('initials', 'created_at', 'updated_at')
         extra_kwargs = {
             'candidate_name': {'required': False},
-            'result_placement': {'required': False},
-            'country': {'required': False},
+            'result_placement': {'required': False, 'allow_blank': True},
+            'country': {'required': False, 'allow_blank': True},
             'photo': {'required': False},
-            'is_active': {'default': True, 'required': False},
-            'is_deleted': {'default': False, 'required': False},
             'is_published': {'default': True, 'required': False},
-            'is_featured': {'default': True, 'required': False},
             'is_student_submission': {'default': False, 'required': False}
         }
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_photo_url(self, obj):
-        if obj.photo:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.photo.url)
-            return obj.photo.url
-        return None
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_avatar(self, obj):
-        return self.get_photo_url(obj)
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -56,11 +39,11 @@ class TestimonialSerializer(serializers.ModelSerializer):
                     mutable_data['candidate_name'] = mutable_data[alias]
                     break
 
-        # 2. Programme name alias (Enrolled Programme / Course)
-        if not mutable_data.get('programme_name'):
-            for alias in ['enrolled_programme', 'enrolled_course', 'programme', 'course', 'course_name']:
+        # 2. Course / Programme name alias
+        if not mutable_data.get('course_name'):
+            for alias in ['programme_name', 'programme', 'enrolled_programme', 'enrolled_course', 'course']:
                 if mutable_data.get(alias):
-                    mutable_data['programme_name'] = str(mutable_data[alias])
+                    mutable_data['course_name'] = str(mutable_data[alias])
                     break
 
         # 3. Country / City alias
@@ -77,11 +60,11 @@ class TestimonialSerializer(serializers.ModelSerializer):
                     mutable_data['result_placement'] = mutable_data[alias]
                     break
 
-        # 5. Quote / Review alias
-        if not mutable_data.get('quote'):
-            for alias in ['candidate_quote', 'review', 'content', 'comment', 'testimonial']:
+        # 5. Review / Quote alias
+        if not mutable_data.get('review'):
+            for alias in ['quote', 'candidate_quote', 'content', 'comment', 'testimonial']:
                 if mutable_data.get(alias):
-                    mutable_data['quote'] = mutable_data[alias]
+                    mutable_data['review'] = mutable_data[alias]
                     break
 
         # 6. Photo alias
@@ -105,7 +88,7 @@ class TestimonialSerializer(serializers.ModelSerializer):
         if not attrs.get('candidate_name') and not (self.instance and self.instance.candidate_name):
             raise serializers.ValidationError({'candidate_name': 'Candidate full name is required.'})
         if not attrs.get('quote') and not (self.instance and self.instance.quote):
-            raise serializers.ValidationError({'quote': 'Candidate quote / review is required.'})
+            raise serializers.ValidationError({'review': 'Candidate review is required.'})
         return attrs
 
 

@@ -32,11 +32,16 @@ class TestimonialViewSet(viewsets.ModelViewSet):
             elif status_param in ['student_submissions', 'student_submitted', 'submissions']:
                 qs = qs.filter(is_student_submission=True)
 
-        # Handle programme dropdown filter: ?programme=Gulf Licensing Preparation
-        programme_param = self.request.query_params.get('programme') or self.request.query_params.get('programme_name')
-        if programme_param and programme_param.strip().lower() != 'all':
-            programme_param = programme_param.strip()
-            qs = qs.filter(programme_name__icontains=programme_param)
+        # Handle course / programme dropdown filter: ?course_name=... or ?course=... or ?programme=...
+        course_param = (
+            self.request.query_params.get('course_name') or
+            self.request.query_params.get('course') or
+            self.request.query_params.get('programme_name') or
+            self.request.query_params.get('programme')
+        )
+        if course_param and course_param.strip().lower() != 'all':
+            course_param = course_param.strip()
+            qs = qs.filter(programme_name__icontains=course_param)
 
         if self.request.user and self.request.user.is_authenticated:
             return qs
