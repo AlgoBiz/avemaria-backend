@@ -8,7 +8,12 @@ from django.utils.text import slugify
 from drf_spectacular.utils import extend_schema
 
 from apps.gallery.models import GalleryItem, GalleryCategory
-from .serializers import GalleryItemSerializer, GalleryCategorySerializer
+from .serializers import (
+    GalleryItemSerializer,
+    GalleryCategorySerializer,
+    GalleryCategoryCreateSerializer,
+    GalleryCategoryListSerializer,
+)
 
 
 class GalleryCategoryViewSet(viewsets.ModelViewSet):
@@ -19,6 +24,13 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at', 'id']
     ordering = ['-created_at', '-id']
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'create_category']:
+            return GalleryCategoryCreateSerializer
+        if self.action == 'list':
+            return GalleryCategoryListSerializer
+        return GalleryCategorySerializer
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -39,8 +51,8 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Create gallery category",
         description="Create gallery category endpoint at /api/v1/gallery/categories/create/",
-        request=GalleryCategorySerializer,
-        responses={201: GalleryCategorySerializer}
+        request=GalleryCategoryCreateSerializer,
+        responses={201: GalleryCategoryCreateSerializer}
     )
     @action(detail=False, methods=['post'], url_path='create')
     def create_category(self, request, *args, **kwargs):

@@ -28,9 +28,11 @@ from api.v1.courses.serializers import CourseEnrollmentSerializer
 from api.v1.resources.serializers import (
     ResourcePurchaseSerializer,
     StudentPurchasedResourceCardSerializer,
+    StudentPurchasedResourceDetailSerializer,
     StudentPurchaseHistorySerializer,
     StudentPaymentDetailItemSerializer,
     StudentReceiptSerializer,
+    StudentSingleReceiptDetailSerializer,
 )
 from .serializers import (
     AdminProfileSerializer,
@@ -1888,6 +1890,36 @@ class StudentPurchasedResourcesView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class StudentPurchasedResourceDetailView(APIView):
+    """
+    Returns full interactive resource study details and downloadable files for a single purchased resource.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentPurchasedResourceDetailSerializer
+
+    @extend_schema(
+        tags=['Student Resource Purchases'],
+        summary="Get Single Purchased Resource Full Detail",
+        description="Returns full interactive study view details matching UI (reader, modules, blueprint, files).",
+        responses={200: StudentPurchasedResourceDetailSerializer, 404: OpenApiResponse(description="Resource purchase not found")}
+    )
+    def get(self, request, pk):
+        student = getattr(request.user, 'student_profile', None)
+        if not student:
+            return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        purchase = ResourcePurchase.objects.filter(
+            student=student,
+            is_deleted=False
+        ).filter(Q(id=pk) | Q(resource_id=pk)).select_related('resource').prefetch_related('resource__pdf_files').first()
+
+        if not purchase:
+            return Response({"detail": "Purchased resource not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudentPurchasedResourceDetailSerializer(purchase, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 class StudentResourcePurchaseView(APIView):
     """
     Allows a student to purchase / unlock a paid study resource.
@@ -2086,6 +2118,68 @@ class StudentPurchaseHistoryView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class StudentPurchaseHistoryDetailView(APIView):
+    """
+    Returns single purchase history / tax invoice detail modal data by ID for the authenticated student.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentSingleReceiptDetailSerializer
+
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="Get Single Purchase History / Tax Invoice Detail",
+        description="Returns full invoice and receipt breakdown matching the Tax Invoice & Receipt modal by purchase ID.",
+        responses={200: StudentSingleReceiptDetailSerializer, 404: OpenApiResponse(description="Purchase not found")}
+    )
+    def get(self, request, purchase_id):
+        student = getattr(request.user, 'student_profile', None)
+        if not student:
+            return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        purchase = ResourcePurchase.objects.filter(
+            student=student,
+            id=purchase_id,
+            is_deleted=False
+        ).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
+
+        if not purchase:
+            return Response({"detail": "Purchase not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudentSingleReceiptDetailSerializer(purchase, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class StudentReceiptDetailView(APIView):
+    """
+    Returns single receipt / tax invoice detail modal data by ID for the authenticated student.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentSingleReceiptDetailSerializer
+
+    @extend_schema(
+        tags=['Student Invoices & Payments'],
+        summary="Get Single Tax Invoice & Receipt Detail",
+        description="Returns full invoice and receipt breakdown matching the Tax Invoice & Receipt modal.",
+        responses={200: StudentSingleReceiptDetailSerializer, 404: OpenApiResponse(description="Receipt not found")}
+    )
+    def get(self, request, purchase_id):
+        student = getattr(request.user, 'student_profile', None)
+        if not student:
+            return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        purchase = ResourcePurchase.objects.filter(
+            student=student,
+            id=purchase_id,
+            is_deleted=False
+        ).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
+
+        if not purchase:
+            return Response({"detail": "Receipt not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudentSingleReceiptDetailSerializer(purchase, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 class StudentPaymentDetailsView(APIView):
     """
     Returns payment summary cards (Total Spent, Completed Payments),
@@ -2105,18 +2199,9 @@ class StudentPaymentDetailsView(APIView):
         student = getattr(request.user, 'student_profile', None)
         if not student:
             return Response({
-                "summary": {
-                    "total_spent": "0.00",
-                    "total_spent_formatted": "£0.00",
-                    "currency": "£",
-                    "completed_payments": 0,
-                    "pending_payments": 0,
-                    "total_transactions": 0
-                },
-                "payment_methods_notice": {
-                    "title": "Payment methods",
-                    "note": "Card details are never stored on our servers. Every payment is taken on our payment provider’s secure checkout, and your saved cards are managed there."
-                },
+                "total_spent": "0.00",
+                "completed_payments": 0,
+                "pending_payments": 0,
                 "results": []
             }, status=status.HTTP_200_OK)
 
@@ -2130,26 +2215,13 @@ class StudentPaymentDetailsView(APIView):
         pending_count = purchases.filter(payment_status='pending').count()
 
         total_val = paid_purchases.aggregate(total=Sum('amount_paid'))['total'] or 0.00
-        currency = '£'
-        first_p = purchases.first()
-        if first_p and first_p.currency:
-            currency = first_p.currency
 
         serializer = StudentPaymentDetailItemSerializer(purchases, many=True, context={'request': request})
 
         return Response({
-            "summary": {
-                "total_spent": f"{total_val:.2f}",
-                "total_spent_formatted": f"{currency}{total_val:.2f}",
-                "currency": currency,
-                "completed_payments": completed_count,
-                "pending_payments": pending_count,
-                "total_transactions": purchases.count()
-            },
-            "payment_methods_notice": {
-                "title": "Payment methods",
-                "note": "Card details are never stored on our servers. Every payment is taken on our payment provider’s secure checkout, and your saved cards are managed there."
-            },
+            "total_spent": f"{total_val:.2f}",
+            "completed_payments": completed_count,
+            "pending_payments": pending_count,
             "results": serializer.data
         }, status=status.HTTP_200_OK)
 

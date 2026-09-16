@@ -13,6 +13,7 @@ from .serializers import (
     ResourcePDFSerializer,
     ResourcePDFUploadSerializer,
     ResourceCategorySerializer,
+    ResourceCategoryCreateSerializer,
     ResourcePurchaseSerializer,
     StudentPurchaseHistorySerializer,
     StudentPaymentDetailItemSerializer,
@@ -143,8 +144,8 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         methods=['POST'],
         summary="Create resource category",
         description="Create new resource category (Admin)",
-        request=ResourceCategorySerializer,
-        responses={201: ResourceCategorySerializer}
+        request=ResourceCategoryCreateSerializer,
+        responses={201: ResourceCategoryCreateSerializer}
     )
     @action(detail=False, methods=['get', 'post'], url_path='categories')
     def categories(self, request):
@@ -153,10 +154,10 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         POST: Create new resource category (Admin)
         """
         if request.method == 'POST':
-            serializer = ResourceCategorySerializer(data=request.data)
+            serializer = ResourceCategoryCreateSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             category = serializer.save()
-            return Response(ResourceCategorySerializer(category).data, status=status.HTTP_201_CREATED)
+            return Response(ResourceCategoryCreateSerializer(category).data, status=status.HTTP_201_CREATED)
 
         # GET: Seed default categories if none exist, then return all non-deleted
         existing = ResourceCategory.objects.filter(is_deleted=False)
@@ -170,16 +171,16 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Create resource category",
         description="Create resource category endpoint at /api/v1/resources/categories/create/",
-        request=ResourceCategorySerializer,
-        responses={201: ResourceCategorySerializer}
+        request=ResourceCategoryCreateSerializer,
+        responses={201: ResourceCategoryCreateSerializer}
     )
     @action(detail=False, methods=['post'], url_path='categories/create')
     def create_resource_category(self, request, *args, **kwargs):
         """Create resource category endpoint at /api/v1/resources/categories/create/"""
-        serializer = ResourceCategorySerializer(data=request.data)
+        serializer = ResourceCategoryCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         category = serializer.save()
-        return Response(ResourceCategorySerializer(category).data, status=status.HTTP_201_CREATED)
+        return Response(ResourceCategoryCreateSerializer(category).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         methods=['GET'],
@@ -336,18 +337,9 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         student = getattr(request.user, 'student_profile', None)
         if not student:
             return Response({
-                "summary": {
-                    "total_spent": "0.00",
-                    "total_spent_formatted": "£0.00",
-                    "currency": "£",
-                    "completed_payments": 0,
-                    "pending_payments": 0,
-                    "total_transactions": 0
-                },
-                "payment_methods_notice": {
-                    "title": "Payment methods",
-                    "note": "Card details are never stored on our servers. Every payment is taken on our payment provider’s secure checkout, and your saved cards are managed there."
-                },
+                "total_spent": "0.00",
+                "completed_payments": 0,
+                "pending_payments": 0,
                 "results": []
             }, status=status.HTTP_200_OK)
 
@@ -365,26 +357,13 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         pending_count = purchases.filter(payment_status='pending').count()
 
         total_val = paid_purchases.aggregate(total=Sum('amount_paid'))['total'] or 0.00
-        currency = '£'
-        first_p = purchases.first()
-        if first_p and first_p.currency:
-            currency = first_p.currency
 
         serializer = StudentPaymentDetailItemSerializer(purchases, many=True, context={'request': request})
 
         return Response({
-            "summary": {
-                "total_spent": f"{total_val:.2f}",
-                "total_spent_formatted": f"{currency}{total_val:.2f}",
-                "currency": currency,
-                "completed_payments": completed_count,
-                "pending_payments": pending_count,
-                "total_transactions": purchases.count()
-            },
-            "payment_methods_notice": {
-                "title": "Payment methods",
-                "note": "Card details are never stored on our servers. Every payment is taken on our payment provider’s secure checkout, and your saved cards are managed there."
-            },
+            "total_spent": f"{total_val:.2f}",
+            "completed_payments": completed_count,
+            "pending_payments": pending_count,
             "results": serializer.data
         }, status=status.HTTP_200_OK)
 

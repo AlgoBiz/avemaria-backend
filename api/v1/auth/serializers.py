@@ -411,8 +411,9 @@ class StudentPaymentDetailsNoticeSerializer(serializers.Serializer):
 
 
 class StudentPaymentDetailsResponseSerializer(serializers.Serializer):
-    summary = StudentPaymentDetailsSummarySerializer()
-    payment_methods_notice = StudentPaymentDetailsNoticeSerializer()
+    total_spent = serializers.CharField()
+    completed_payments = serializers.IntegerField()
+    pending_payments = serializers.IntegerField()
     results = serializers.ListField(child=serializers.DictField())
 
 

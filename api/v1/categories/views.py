@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.utils import extend_schema
 from apps.categories.models import Category
-from .serializers import CategorySerializer, CategoryListSerializer
+from .serializers import CategorySerializer, CategoryListSerializer, CategoryCreateSerializer
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.filter(is_deleted=False)
@@ -14,6 +14,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'list':
             return CategoryListSerializer
+        if self.action in ['create', 'create_category']:
+            return CategoryCreateSerializer
         return CategorySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -43,8 +45,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Create category",
         description="Create category endpoint at /api/v1/courses/categories/create/",
-        request=CategorySerializer,
-        responses={201: CategorySerializer}
+        request=CategoryCreateSerializer,
+        responses={201: CategoryCreateSerializer}
     )
     @action(detail=False, methods=['post'], url_path='create')
     def create_category(self, request, *args, **kwargs):

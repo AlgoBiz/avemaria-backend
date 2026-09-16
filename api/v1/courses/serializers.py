@@ -8,27 +8,29 @@ from apps.faculty.models import Faculty
 from api.v1.categories.serializers import CategorySerializer
 
 class CourseListSerializer(serializers.ModelSerializer):
-    category_title = serializers.CharField(source='category.title', read_only=True)
+    category = serializers.CharField(source='category.title', read_only=True)
+    short_description = serializers.CharField(source='summary', read_only=True)
     cover_image = serializers.SerializerMethodField()
-    fee_formatted = serializers.SerializerMethodField()
-    faculty_display = serializers.SerializerMethodField()
+    fee = serializers.SerializerMethodField()
+    faculty_name = serializers.SerializerMethodField()
+    faculty_qualification = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
         fields = (
             'id',
-            'slug',
             'title',
-            'category_title',
+            'category',
             'cover_image',
-            'fee_formatted',
-            'summary',
+            'short_description',
+            'fee',
             'modules_count',
             'highlights_count',
             'level',
             'duration',
             'learning_mode',
-            'faculty_display',
+            'faculty_name',
+            'faculty_qualification',
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -41,29 +43,56 @@ class CourseListSerializer(serializers.ModelSerializer):
         return None
 
     @extend_schema_field(serializers.CharField())
-    def get_fee_formatted(self, obj):
+    def get_fee(self, obj):
         curr = obj.currency or '£'
         fee_str = f"{curr}{int(obj.fee)}" if obj.fee == int(obj.fee) else f"{curr}{obj.fee:.2f}"
         return fee_str
 
     @extend_schema_field(serializers.CharField())
-    def get_faculty_display(self, obj):
-        name = obj.faculty_name or ''
-        qual = obj.faculty_qualification or obj.faculty_title or ''
-        if name and qual:
-            return f"{name} ({qual})"
-        return name or qual
+    def get_faculty_name(self, obj):
+        if obj.faculty and obj.faculty.name:
+            return obj.faculty.name
+        return obj.faculty_name or ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_faculty_qualification(self, obj):
+        if obj.faculty and (obj.faculty.qualification or obj.faculty.title):
+            return obj.faculty.qualification or obj.faculty.title
+        return obj.faculty_qualification or obj.faculty_title or ""
 
     def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ordered_ret = OrderedDict()
-        for field in self.Meta.fields:
-            if field in ret:
-                ordered_ret[field] = ret[field]
-        for k, v in ret.items():
-            if k not in ordered_ret:
-                ordered_ret[k] = v
-        return ordered_ret
+        request = self.context.get('request')
+        cover_image_url = None
+        if instance.cover_image:
+            cover_image_url = request.build_absolute_uri(instance.cover_image.url) if request else instance.cover_image.url
+
+        curr = instance.currency or '£'
+        fee_str = f"{curr}{int(instance.fee)}" if instance.fee == int(instance.fee) else f"{curr}{instance.fee:.2f}"
+
+        faculty_name = ""
+        faculty_qualification = ""
+        if instance.faculty:
+            faculty_name = instance.faculty.name or instance.faculty_name or ""
+            faculty_qualification = instance.faculty.qualification or instance.faculty_qualification or instance.faculty.title or ""
+        else:
+            faculty_name = instance.faculty_name or ""
+            faculty_qualification = instance.faculty_qualification or instance.faculty_title or ""
+
+        return OrderedDict([
+            ('id', instance.id),
+            ('title', instance.title),
+            ('category', instance.category.title if instance.category else None),
+            ('cover_image', cover_image_url),
+            ('short_description', instance.summary or ''),
+            ('fee', fee_str),
+            ('modules_count', instance.modules_count),
+            ('highlights_count', instance.highlights_count),
+            ('level', instance.level or ''),
+            ('duration', instance.duration or ''),
+            ('learning_mode', instance.learning_mode or ''),
+            ('faculty_name', faculty_name),
+            ('faculty_qualification', faculty_qualification),
+        ])
 
 
 class CourseDetailSerializer(serializers.ModelSerializer):
@@ -73,6 +102,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         source='category',
         write_only=True
     )
+    short_description = serializers.CharField(source='summary', read_only=True)
     highlights = serializers.JSONField(required=False, default=list)
     eligibility_criteria = serializers.JSONField(required=False, default=list)
     course_outcomes = serializers.JSONField(required=False, default=list)
@@ -91,6 +121,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             'title',
             'category',
             'category_id',
+            'short_description',
             'summary',
             'overview_description',
             'duration',
@@ -182,6 +213,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
 class CourseWriteSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.title', read_only=True)
+    short_description = serializers.CharField(source='summary', required=False, allow_blank=True)
     faculty = serializers.PrimaryKeyRelatedField(queryset=Faculty.objects.filter(is_deleted=False), required=False, allow_null=True)
     highlights = serializers.JSONField(required=False, default=list)
     eligibility_criteria = serializers.JSONField(required=False, default=list)
@@ -193,11 +225,11 @@ class CourseWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = (
-            # 1. Course Overview & Core Details (Screenshot 1)
             'id',
             'title',
             'category',
             'category_name',
+            'short_description',
             'summary',
             'overview_description',
             'duration',
@@ -207,20 +239,20 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'learning_mode',
             'cover_image',
 
-            # 2. Highlights, Eligibility & Learning Outcomes (Screenshot 2)
+            # Highlights, Eligibility & Learning Outcomes
             'highlights',
             'eligibility_note',
             'eligibility_criteria',
             'course_outcomes',
 
-            # 3. Curriculum & Syllabus (Screenshot 3 / Tab b)
+            # Curriculum & Syllabus
             'curriculum',
 
-            # 4. Course Schedule & Timetable (Screenshot 4 / Tab c)
+            # Course Schedule & Timetable
             'weekly_session_commitment',
             'schedule_details',
 
-            # 5. Faculty Details (Screenshot 5 / Tab d)
+            # Faculty Details
             'faculty',
             'faculty_name',
             'faculty_title',
@@ -229,12 +261,12 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'faculty_bio',
             'faculty_image',
 
-            # 6. FAQs, SEO & Metadata (Tabs e & f)
+            # FAQs, SEO & Metadata
             'faqs',
             'meta_description',
             'meta_keywords',
 
-            # 7. Metrics, Status & Timestamps
+            # Metrics, Status & Timestamps
             'slug',
             'modules_count',
             'highlights_count',
@@ -250,6 +282,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             'slug': {'required': False, 'allow_blank': True, 'read_only': True},
+            'summary': {'required': False, 'allow_blank': True},
+            'currency': {'required': False, 'allow_blank': True},
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
             'is_published': {'default': True, 'required': False},
@@ -305,12 +339,17 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 'category': "Course category is required. Please select an existing category or add it first."
             })
 
-        # 3. Summary alias (Course Short Description / Hero Subtitle)
-        if not data.get('summary'):
-            for alias in ['short_description', 'hero_subtitle', 'subtitle', 'course_short_description']:
+        # 3. Summary / Short Description alias
+        if not data.get('summary') and not data.get('short_description'):
+            for alias in ['hero_subtitle', 'subtitle', 'course_short_description', 'course_summary']:
                 if data.get(alias):
                     data['summary'] = data[alias]
+                    data['short_description'] = data[alias]
                     break
+        elif data.get('short_description') and not data.get('summary'):
+            data['summary'] = data['short_description']
+        elif data.get('summary') and not data.get('short_description'):
+            data['short_description'] = data['summary']
 
         # 4. Overview Description (COURSE OVERVIEW CONTENT / WHAT THIS PROGRAMME COVERS)
         if not data.get('overview_description'):
@@ -359,17 +398,21 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             elif 'live' in lm:
                 data['learning_mode'] = 'live online'
 
-        # 10. Cover image alias
+        # 10. Cover image alias & null handling
         if not data.get('cover_image'):
             for alias in ['image', 'cover', 'photo', 'programme_cover_image']:
                 if data.get(alias):
                     data['cover_image'] = data[alias]
                     break
+        if data.get('cover_image') in ['', 'null', 'None', None]:
+            data.pop('cover_image', None)
 
         # 11. Faculty resolution & validation (must exist in Faculty list)
         fac_val = data.get('faculty') or data.get('faculty_id') or data.get('faculty_name') or data.get('faculty_full_name') or data.get('instructor_name')
+        if isinstance(fac_val, list) and len(fac_val) > 0:
+            fac_val = fac_val[0]
         if isinstance(fac_val, dict):
-            fac_val = fac_val.get('id') or fac_val.get('name')
+            fac_val = fac_val.get('id') or fac_val.get('faculty_name') or fac_val.get('name')
 
         if fac_val is not None and str(fac_val).strip():
             raw_fac_str = str(fac_val).strip()
@@ -446,15 +489,73 @@ class CourseWriteSerializer(serializers.ModelSerializer):
         return attrs
 
     def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ordered_ret = OrderedDict()
-        for field in self.Meta.fields:
-            if field in ret:
-                ordered_ret[field] = ret[field]
-        for k, v in ret.items():
-            if k not in ordered_ret:
-                ordered_ret[k] = v
-        return ordered_ret
+        request = self.context.get('request')
+
+        # Cover image URL
+        cover_image_url = None
+        if instance.cover_image:
+            cover_image_url = request.build_absolute_uri(instance.cover_image.url) if request else instance.cover_image.url
+
+        # Faculty list representation
+        faculty_list = []
+        if instance.faculty:
+            fac_image_url = None
+            if instance.faculty.image:
+                fac_image_url = request.build_absolute_uri(instance.faculty.image.url) if request else instance.faculty.image.url
+            elif instance.faculty_image:
+                fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
+
+            faculty_list.append({
+                "id": instance.faculty.id,
+                "faculty_name": instance.faculty.name or instance.faculty_name or "",
+                "faculty_title": instance.faculty.title or instance.faculty_title or "",
+                "faculty_qualification": instance.faculty.qualification or instance.faculty_qualification or "",
+                "faculty_experience": instance.faculty.experience or instance.faculty_experience or "",
+                "faculty_bio": instance.faculty.bio or instance.faculty_bio or "",
+                "faculty_image": fac_image_url,
+            })
+        elif instance.faculty_name:
+            fac_image_url = None
+            if instance.faculty_image:
+                fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
+            faculty_list.append({
+                "id": None,
+                "faculty_name": instance.faculty_name,
+                "faculty_title": instance.faculty_title or "",
+                "faculty_qualification": instance.faculty_qualification or "",
+                "faculty_experience": instance.faculty_experience or "",
+                "faculty_bio": instance.faculty_bio or "",
+                "faculty_image": fac_image_url,
+            })
+
+        return OrderedDict([
+            ('id', instance.id),
+            ('title', instance.title),
+            ('category', instance.category.title if instance.category else None),
+            ('short_description', instance.summary or ''),
+            ('overview_description', instance.overview_description or ''),
+            ('duration', instance.duration or ''),
+            ('level', instance.level or ''),
+            ('fee', instance.fee),
+            ('learning_mode', instance.learning_mode or ''),
+            ('cover_image', cover_image_url),
+            ('highlights', instance.highlights or []),
+            ('eligibility_note', instance.eligibility_note or ''),
+            ('eligibility_criteria', instance.eligibility_criteria or []),
+            ('course_outcomes', instance.course_outcomes or []),
+            ('curriculum', instance.curriculum or []),
+            ('weekly_session_commitment', instance.weekly_session_commitment or ''),
+            ('schedule_details', instance.schedule_details or ''),
+            ('faculty', faculty_list),
+            ('faqs', instance.faqs or []),
+            ('meta_description', instance.meta_description or ''),
+            ('meta_keywords', instance.meta_keywords or []),
+            ('is_featured', instance.is_featured),
+            ('is_active', instance.is_active),
+            ('is_deleted', instance.is_deleted),
+            ('created_at', instance.created_at.isoformat() if instance.created_at else None),
+            ('updated_at', instance.updated_at.isoformat() if instance.updated_at else None),
+        ])
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):

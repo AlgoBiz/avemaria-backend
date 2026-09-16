@@ -17,7 +17,13 @@ class GalleryCategory(BaseModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)
+            base_slug = slugify(self.name) or 'gallery-category'
+            unique_slug = base_slug
+            counter = 1
+            while GalleryCategory.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
         super().save(*args, **kwargs)
 
     @property

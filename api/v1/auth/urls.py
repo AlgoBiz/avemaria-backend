@@ -23,11 +23,14 @@ from .views import (
     StudentCourseEnrollView,
     StudentCourseDropView,
     StudentPurchasedResourcesView,
+    StudentPurchasedResourceDetailView,
     StudentResourcePurchaseView,
     StudentResourceAccessView,
     StudentPurchaseHistoryView,
+    StudentPurchaseHistoryDetailView,
     StudentPaymentDetailsView,
     StudentReceiptsView,
+    StudentReceiptDetailView,
     StudentReceiptResendView,
     StudentChangePasswordView,
     StudentLogoutView,
@@ -77,12 +80,15 @@ urlpatterns = [
 
     # Student Purchased Resources Endpoints
     path('student/resources/', StudentPurchasedResourcesView.as_view(), name='student_resources'),
+    path('student/resources/<int:pk>/', StudentPurchasedResourceDetailView.as_view(), name='student_resource_detail'),
     path('student/resources/purchase/', StudentResourcePurchaseView.as_view(), name='student_resource_purchase'),
     path('student/resources/<int:resource_id>/access/', StudentResourceAccessView.as_view(), name='student_resource_access'),
 
     # Student Purchase History Endpoints
     path('student/purchase-history/', StudentPurchaseHistoryView.as_view(), name='student_purchase_history'),
+    path('student/purchase-history/<int:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchase_history_detail'),
     path('student/purchases/', StudentPurchaseHistoryView.as_view(), name='student_purchases'),
+    path('student/purchases/<int:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchases_detail'),
 
     # Student Payment Details Endpoints
     path('student/payments/', StudentPaymentDetailsView.as_view(), name='student_payments'),
@@ -90,7 +96,9 @@ urlpatterns = [
 
     # Student Invoices / Receipts Endpoints
     path('student/receipts/', StudentReceiptsView.as_view(), name='student_receipts'),
+    path('student/receipts/<int:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_receipt_detail'),
     path('student/invoices/', StudentReceiptsView.as_view(), name='student_invoices'),
+    path('student/invoices/<int:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_invoice_detail'),
     path('student/receipts/<int:purchase_id>/resend/', StudentReceiptResendView.as_view(), name='student_receipt_resend'),
 ]
 

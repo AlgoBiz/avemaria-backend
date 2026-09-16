@@ -3,10 +3,64 @@ from drf_spectacular.utils import extend_schema_field
 from apps.gallery.models import GalleryItem, GalleryCategory
 
 
+class GalleryCategoryCreateSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(required=False)
+
+    class Meta:
+        model = GalleryCategory
+        fields = ('id', 'name', 'is_active', 'created_at', 'updated_at')
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            mutable_data = data.dict()
+        elif hasattr(data, 'copy'):
+            mutable_data = data.copy()
+        else:
+            mutable_data = dict(data)
+
+        # Support "category" or "category_name" or "title" alias
+        if not mutable_data.get('name'):
+            for alias in ['category', 'category_name', 'title']:
+                if mutable_data.get(alias):
+                    mutable_data['name'] = mutable_data[alias]
+                    break
+
+        return super().to_internal_value(mutable_data)
+
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = str(name).strip()
+        attrs['name'] = cleaned
+
+        # Check for existing category with same name
+        existing = GalleryCategory.objects.filter(name__iexact=cleaned).first()
+        if existing and not self.instance:
+            if not existing.is_deleted:
+                raise serializers.ValidationError({"name": f"Gallery category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        existing = GalleryCategory.objects.filter(name__iexact=name).first()
+        if existing and existing.is_deleted:
+            existing.is_deleted = False
+            for k, v in validated_data.items():
+                setattr(existing, k, v)
+            existing.save()
+            return existing
+        return super().create(validated_data)
+
+
+GalleryCategoryListSerializer = GalleryCategoryCreateSerializer
+
+
 class GalleryCategorySerializer(serializers.ModelSerializer):
     category = serializers.CharField(source='name', required=False)
-    name = serializers.CharField(required=False, write_only=True)
-    description = serializers.CharField(required=False, allow_blank=True, default='', write_only=True)
+    name = serializers.CharField(required=False)
+    description = serializers.CharField(required=False, allow_blank=True, default='')
     image = serializers.ImageField(required=False, allow_null=True)
     alt_text = serializers.CharField(required=False, allow_blank=True, default='')
     photos_count = serializers.IntegerField(read_only=True)
@@ -14,13 +68,14 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = GalleryCategory
         fields = (
-            'id', 'category', 'name', 'description',
+            'id', 'name', 'category', 'description',
             'image', 'alt_text', 'photos_count',
             'is_active', 'created_at', 'updated_at'
         )
         extra_kwargs = {
-            'name': {'write_only': True, 'required': False},
-            'description': {'write_only': True, 'required': False},
+            'description': {'required': False, 'allow_blank': True},
+            'alt_text': {'required': False, 'allow_blank': True},
+            'image': {'required': False, 'allow_null': True},
         }
 
     def to_internal_value(self, data):
@@ -31,12 +86,12 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
         else:
             mutable_data = dict(data)
 
-        # Support "category" or "category_name" alias from UI / client
+        # Support "category" or "category_name" or "title" alias
         if not mutable_data.get('name'):
-            if mutable_data.get('category'):
-                mutable_data['name'] = mutable_data['category']
-            elif mutable_data.get('category_name'):
-                mutable_data['name'] = mutable_data['category_name']
+            for alias in ['category', 'category_name', 'title']:
+                if mutable_data.get(alias):
+                    mutable_data['name'] = mutable_data[alias]
+                    break
 
         if not mutable_data.get('category') and mutable_data.get('name'):
             mutable_data['category'] = mutable_data['name']
@@ -48,18 +103,41 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
             elif mutable_data.get('file'):
                 mutable_data['image'] = mutable_data['file']
 
+        if mutable_data.get('image') in ['', 'null', 'None', None]:
+            mutable_data.pop('image', None)
+
         return super().to_internal_value(mutable_data)
 
-    def validate_name(self, value):
-        if not value or not str(value).strip():
-            raise serializers.ValidationError("Category name is required.")
-        return value.strip()
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = str(name).strip()
+        attrs['name'] = cleaned
+
+        # Check for existing category with same name
+        existing = GalleryCategory.objects.filter(name__iexact=cleaned).first()
+        if existing and not self.instance:
+            if not existing.is_deleted:
+                raise serializers.ValidationError({"name": f"Gallery category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        existing = GalleryCategory.objects.filter(name__iexact=name).first()
+        if existing and existing.is_deleted:
+            existing.is_deleted = False
+            for k, v in validated_data.items():
+                setattr(existing, k, v)
+            existing.save()
+            return existing
+        return super().create(validated_data)
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # Ensure "category" is populated
-        if not ret.get('category') and hasattr(instance, 'name'):
-            ret['category'] = instance.name
+        ret['name'] = instance.name
+        ret['category'] = instance.name
 
         request = self.context.get('request')
         image_url = None
@@ -84,10 +162,7 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
 
         ret['image'] = image_url
         ret['alt_text'] = alt_text
-
-        # Exclude name and description from response
-        ret.pop('name', None)
-        ret.pop('description', None)
+        return ret
 
         return ret
 

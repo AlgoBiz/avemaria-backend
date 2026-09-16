@@ -2,6 +2,52 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.categories.models import Category
 
+class CategoryCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = (
+            'id', 'title', 'cover_image',
+            'description', 'created_at'
+        )
+        extra_kwargs = {
+            'cover_image': {'required': False, 'allow_null': True},
+            'description': {'required': False, 'allow_blank': True}
+        }
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            data = data.dict()
+        else:
+            data = data.copy()
+
+        # Field alias: Category Title
+        if not data.get('title'):
+            for alias in ['category_title', 'name', 'category_name']:
+                if data.get(alias):
+                    data['title'] = data[alias]
+                    break
+
+        # Field alias: Cover image
+        if not data.get('cover_image'):
+            for alias in ['image', 'cover', 'file', 'category_cover']:
+                if data.get(alias):
+                    data['cover_image'] = data[alias]
+                    break
+
+        # Field alias: Description
+        if not data.get('description'):
+            for alias in ['category_description', 'desc', 'bio']:
+                if data.get(alias):
+                    data['description'] = data[alias]
+                    break
+
+        # Handle empty string for file/image
+        if data.get('cover_image') == '' or data.get('cover_image') == 'null':
+            data.pop('cover_image', None)
+
+        return super().to_internal_value(data)
+
+
 class CategorySerializer(serializers.ModelSerializer):
     programmes_count = serializers.IntegerField(read_only=True)
     programmes_label = serializers.SerializerMethodField()
@@ -75,4 +121,5 @@ class CategoryListSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.cover_image.url)
             return obj.cover_image.url
         return None
+
 

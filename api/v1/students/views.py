@@ -12,6 +12,7 @@ from apps.courses.models import CourseEnrollment
 from drf_spectacular.utils import extend_schema
 from .serializers import (
     StudentSerializer,
+    StudentListSerializer,
     StudentContactSerializer,
     StudentContactResponseSerializer,
     StudentStatsResponseSerializer,
@@ -35,6 +36,11 @@ class StudentViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'email', 'phone', 'location', 'city', 'country', 'qualification', 'institution']
     ordering_fields = ['registered_date', 'name', 'created_at', 'id']
     ordering = ['-created_at', '-id']
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return StudentListSerializer
+        return StudentSerializer
 
     def get_permissions(self):
         if self.action in ['invoice', 'invoice_data']:

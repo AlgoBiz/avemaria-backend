@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.testimonials.models import Testimonial
@@ -5,12 +6,13 @@ from apps.testimonials.models import Testimonial
 class TestimonialSerializer(serializers.ModelSerializer):
     course_name = serializers.CharField(source='programme_name', required=False, allow_blank=True)
     review = serializers.CharField(source='quote', required=False)
+    image = serializers.SerializerMethodField()
 
     class Meta:
         model = Testimonial
         fields = (
             'id', 'candidate_name', 'initials', 'course_name', 'result_placement',
-            'country', 'review', 'rating', 'photo',
+            'country', 'review', 'rating', 'image',
             'is_published', 'is_student_submission',
             'created_at', 'updated_at'
         )
@@ -19,10 +21,29 @@ class TestimonialSerializer(serializers.ModelSerializer):
             'candidate_name': {'required': False},
             'result_placement': {'required': False, 'allow_blank': True},
             'country': {'required': False, 'allow_blank': True},
-            'photo': {'required': False},
             'is_published': {'default': True, 'required': False},
             'is_student_submission': {'default': False, 'required': False}
         }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_image(self, obj):
+        if obj.photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.photo.url)
+            return obj.photo.url
+        return None
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in self.Meta.fields:
+            if field in ret:
+                ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
+        return ordered_ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -67,14 +88,20 @@ class TestimonialSerializer(serializers.ModelSerializer):
                     mutable_data['review'] = mutable_data[alias]
                     break
 
-        # 6. Photo alias
+        # 6. Photo / Image alias
         if not mutable_data.get('photo'):
-            for alias in ['candidate_photo', 'image', 'avatar', 'picture']:
+            for alias in ['candidate_photo', 'image', 'avatar', 'picture', 'candidate_image']:
                 if mutable_data.get(alias):
                     mutable_data['photo'] = mutable_data[alias]
                     break
+        if mutable_data.get('photo') in ['', 'null', 'None', None]:
+            mutable_data.pop('photo', None)
 
-        # 7. Publication status normalization (e.g. 'Published' -> True, 'Unpublished' -> False)
+        # 7. Initials override if provided
+        if mutable_data.get('initials'):
+            mutable_data['initials'] = str(mutable_data['initials']).strip()
+
+        # 8. Publication status normalization (e.g. 'Published' -> True, 'Unpublished' -> False)
         pub_status = mutable_data.get('publication_status') or mutable_data.get('status')
         if pub_status is not None:
             if str(pub_status).strip().lower() in ['published', 'true', '1']:

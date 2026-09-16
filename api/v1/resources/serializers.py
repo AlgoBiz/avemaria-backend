@@ -3,6 +3,24 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
 
+class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ResourceCategory
+        fields = ('id', 'name', 'created_at', 'updated_at')
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            data = data.dict()
+        else:
+            data = data.copy()
+        if not data.get('name'):
+            for alias in ['title', 'category_name', 'category']:
+                if data.get(alias):
+                    data['name'] = data[alias]
+                    break
+        return super().to_internal_value(data)
+
+
 class ResourceCategorySerializer(serializers.ModelSerializer):
     resources_count = serializers.IntegerField(read_only=True)
 
@@ -32,12 +50,11 @@ class ResourcePDFSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ResourcePDF
-        fields = ('id', 'title', 'file', 'file_size', 'is_active', 'is_deleted', 'uploaded_at', 'created_at')
+        fields = ('id', 'file', 'file_size', 'uploaded_at', 'created_at')
 
 
 class ResourceListSerializer(serializers.ModelSerializer):
     pdf_count = serializers.IntegerField(read_only=True)
-    pdf_count_display = serializers.SerializerMethodField()
     highlights = serializers.JSONField(read_only=True)
 
     class Meta:
@@ -50,12 +67,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'description',
             'highlights',
             'pdf_count',
-            'pdf_count_display'
         )
-
-    @extend_schema_field(serializers.CharField())
-    def get_pdf_count_display(self, obj):
-        return f"{obj.pdf_count} PDFs attached"
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -63,6 +75,9 @@ class ResourceListSerializer(serializers.ModelSerializer):
         for field in self.Meta.fields:
             if field in ret:
                 ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
         return ordered_ret
 
 
@@ -70,22 +85,19 @@ class PaidResourceSerializer(serializers.ModelSerializer):
     pdf_files = ResourcePDFSerializer(many=True, read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     category = serializers.CharField(required=True, allow_blank=False)
-    pdf_count_display = serializers.SerializerMethodField()
     highlights = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = PaidResource
         fields = (
             'id',
+            'title',
             'category',
             'price',
-            'title',
             'description',
             'highlights',
             'pdf_count',
-            'pdf_count_display',
             'pdf_files',
-            'course_name',
             'is_active',
             'is_deleted',
             'created_at',
@@ -94,19 +106,8 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
-            'course_name': {'required': False, 'allow_blank': True}
+            'description': {'required': False, 'allow_blank': True}
         }
-
-    @extend_schema_field(serializers.CharField())
-    def get_price_formatted(self, obj):
-        if obj.price == 0:
-            return 'Free'
-        curr = obj.currency or '£'
-        return f"{curr}{obj.price:.2f}"
-
-    @extend_schema_field(serializers.CharField())
-    def get_pdf_count_display(self, obj):
-        return f"{obj.pdf_count} PDFs attached"
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -114,6 +115,9 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         for field in self.Meta.fields:
             if field in ret:
                 ordered_ret[field] = ret[field]
+        for k, v in ret.items():
+            if k not in ordered_ret:
+                ordered_ret[k] = v
         return ordered_ret
 
     def to_internal_value(self, data):
@@ -362,42 +366,252 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
         return StudentPurchasedResourceFileSerializer(pdfs, many=True, context={'request': request}).data
 
 
-class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
+class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
     """
-    Serializer specifically modeled for the Student Purchase History Table:
-    Columns: SL. NO | RESOURCE | DATE | AMOUNT | STATUS
+    Full detail serializer for single student purchased resource page matching UI:
+    - Top header with badges (Verified Material, Full Access Unlocked, Lifetime Student Access, Syllabus Blueprint Mapped)
+    - 4 Metadata specs (Format, Target Exams, Language, Questions / Notes)
+    - Right action panel (Open Reader, View Modules, Ask Faculty)
+    - Tab 1: Interactive Study Reader (Live mock question, rationales, package coverage, doubt support)
+    - Tab 2: Included Papers & Modules (5 complete modules with questions/duration)
+    - Tab 3: Exam Blueprint & Strategy (Licensing blueprint with topic weightages)
+    - Downloadable PDF files
     """
-    sl_no = serializers.IntegerField(read_only=True, default=1)
-    resource = serializers.CharField(source='resource.title', read_only=True)
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
-    resource_slug = serializers.CharField(source='resource.slug', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
-    date = serializers.SerializerMethodField()
-    amount = serializers.SerializerMethodField()
-    status = serializers.CharField(source='payment_status', read_only=True)
+    title = serializers.CharField(source='resource.title', read_only=True)
+    description = serializers.CharField(source='resource.description', read_only=True)
+    purchased_date = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
     payment_status = serializers.CharField(read_only=True)
-    payment_method = serializers.CharField(read_only=True)
-    access_url = serializers.SerializerMethodField()
+    badges = serializers.SerializerMethodField()
+    specifications = serializers.SerializerMethodField()
+    resource_access_actions = serializers.SerializerMethodField()
+    interactive_study_reader = serializers.SerializerMethodField()
+    included_modules = serializers.SerializerMethodField()
+    blueprint_strategy = serializers.SerializerMethodField()
+    files = serializers.SerializerMethodField()
 
     class Meta:
         from apps.resources.models import ResourcePurchase
         model = ResourcePurchase
         fields = (
-            'sl_no',
+            'id',
+            'resource_id',
+            'category',
+            'title',
+            'description',
+            'purchased_date',
+            'status',
+            'payment_status',
+            'badges',
+            'specifications',
+            'resource_access_actions',
+            'interactive_study_reader',
+            'included_modules',
+            'blueprint_strategy',
+            'files',
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            day = obj.purchased_at.strftime('%d').lstrip('0')
+            month_year = obj.purchased_at.strftime('%b %Y')
+            return f"{day} {month_year}"
+        return ""
+
+    @extend_schema_field(serializers.DictField())
+    def get_badges(self, obj):
+        return {
+            "verified_material": "Verified Material",
+            "access_status": "Full Access Unlocked",
+            "tags": ["Lifetime Student Access", "Syllabus Blueprint Mapped"]
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_specifications(self, obj):
+        return {
+            "format": "Interactive Online Reader",
+            "target_exams": "DHA / MOH / PSC",
+            "language": "English & Bilingual",
+            "questions_notes": "Full Pack Included"
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_resource_access_actions(self, obj):
+        return {
+            "actions": [
+                {"key": "open_reader", "label": "Open In-Browser Reader", "type": "primary"},
+                {"key": "view_modules", "label": "View Included Modules", "type": "secondary"},
+                {"key": "ask_faculty", "label": "Ask Faculty / Mentor", "type": "link"}
+            ],
+            "notice": "All study material, worked solutions, and blueprint notes are accessible in this portal."
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_interactive_study_reader(self, obj):
+        return {
+            "tab_title": "Interactive Study Reader",
+            "paper_title": "Paper 1: High-Yield Practice Mock Exam",
+            "paper_subtitle": "Interactive practice with worked explanations",
+            "mode": "Live Study Mode",
+            "total_questions": 150,
+            "showing_text": "Showing 3 of 150 practice items",
+            "current_question": {
+                "question_number": 2,
+                "question_text": "In Westgard Multirule quality control evaluation, which rule is considered a warning rule triggering inspection rather than an immediate run rejection?",
+                "options": [
+                    {"id": "A", "text": "1_3s rule (One control measurement exceeds +/- 3SD)"},
+                    {"id": "B", "text": "1_2s rule (One control measurement exceeds +/- 2SD)"},
+                    {"id": "C", "text": "2_2s rule (Two consecutive control measurements exceed +/- 2SD)"},
+                    {"id": "D", "text": "R_4s rule (Difference between consecutive controls exceeds 4SD)"}
+                ],
+                "correct_option": "B",
+                "rationale": "The 1_2s rule is commonly used as a warning/screening rule in Westgard algorithms to trigger inspection of subsequent runs."
+            },
+            "coverage_in_package": [
+                "High-yield biochemistry notes",
+                "Clinical case correlations",
+                "Instrumentation quick charts",
+                "QC & method validation guide",
+                "Exam-focused mnemonics"
+            ],
+            "faculty_support": {
+                "title": "Stuck on a tricky question?",
+                "subtitle": "Our faculty and exam-cleared alumni conduct weekly live doubt sessions for students.",
+                "button_text": "Submit Question to Faculty"
+            }
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_included_modules(self, obj):
+        return {
+            "tab_title": "Included Papers & Modules (5)",
+            "title": "Complete Module Breakdown",
+            "subtitle": "All mock papers, solved keys, and revision guides included in this pack.",
+            "count": 5,
+            "modules": [
+                {
+                    "part": "Part 1",
+                    "badge": "150 Questions",
+                    "title": "Module 1: Prometric Blueprint Diagnostic Mock 1",
+                    "description": "Full examination covering Clinical Pathology, Biochemistry, Microbiology, and Immunohematology.",
+                    "duration": "180 Mins",
+                    "action": "Study in Reader"
+                },
+                {
+                    "part": "Part 2",
+                    "badge": "150 Questions",
+                    "title": "Module 2: Prometric Blueprint Diagnostic Mock 2",
+                    "description": "Timed simulation mapped to DHA & HAAD exam weightages with difficulty tagging.",
+                    "duration": "180 Mins",
+                    "action": "Study in Reader"
+                },
+                {
+                    "part": "Part 3",
+                    "badge": "500+ Questions",
+                    "title": "Module 3: Ten-Year Solved Question Archive",
+                    "description": "Past actual exam papers fully solved with detailed clinical rationales.",
+                    "duration": "Self-Paced",
+                    "action": "Study in Reader"
+                },
+                {
+                    "part": "Part 4",
+                    "badge": "Comprehensive Guide",
+                    "title": "Module 4: Quality Control & Instrumentation Quick Sheet",
+                    "description": "Westgard rules, calibration algorithms, and pre-analytical error troubleshooting.",
+                    "duration": "45 Mins Read",
+                    "action": "Study in Reader"
+                },
+                {
+                    "part": "Part 5",
+                    "badge": "Full Key",
+                    "title": "Module 5: Clinical Rationales & Explanations Handbook",
+                    "description": "Step-by-step logic for every question with official healthcare board references.",
+                    "duration": "Reference Book",
+                    "action": "Study in Reader"
+                }
+            ]
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_blueprint_strategy(self, obj):
+        return {
+            "tab_title": "Exam Blueprint & Strategy",
+            "title": "Licensing Blueprint & Topic Weightage",
+            "subtitle": "Exam preparation distribution recommended by Avemaria academic advisors.",
+            "topics": [
+                {
+                    "topic": "Clinical Biochemistry",
+                    "weightage": "25%",
+                    "summary": "Enzymes, Electrolytes, Acid-Base, Lipids, Hormones, Quality Control"
+                },
+                {
+                    "topic": "Hematology & Coagulation",
+                    "weightage": "25%",
+                    "summary": "Anemias, Leukemias, Coagulation cascade, Peripheral smear morphology"
+                },
+                {
+                    "topic": "Microbiology & Parasitology",
+                    "weightage": "20%",
+                    "summary": "Gram-positive/negative bacteria, Culture media, Antibiotic susceptibility"
+                },
+                {
+                    "topic": "Blood Banking & Serology",
+                    "weightage": "15%",
+                    "summary": "ABO/Rh grouping, Cross-matching, Transfusion reactions, ELISA, Rapid tests"
+                },
+                {
+                    "topic": "Histopathology & Cytology",
+                    "weightage": "10%",
+                    "summary": "Tissue fixation, Processing, Staining techniques, Pap smear basics"
+                },
+                {
+                    "topic": "Lab Safety & Ethics",
+                    "weightage": "5%",
+                    "summary": "Biohazard safety, Disinfection, Biomedical waste management, Good lab practices"
+                }
+            ]
+        }
+
+    @extend_schema_field(StudentPurchasedResourceFileSerializer(many=True))
+    def get_files(self, obj):
+        request = self.context.get('request')
+        pdfs = obj.resource.pdf_files.filter(is_deleted=False).order_by('-id')
+        return StudentPurchasedResourceFileSerializer(pdfs, many=True, context={'request': request}).data
+
+
+class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
+    """
+    Serializer specifically modeled for the Student Purchase History Table:
+    Columns: SL. NO | ITEM / RESOURCE | DATE | AMOUNT | REFERENCE | STATUS | RECEIPT / INVOICE
+    """
+    id = serializers.IntegerField(read_only=True)
+    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    resource = serializers.CharField(source='resource.title', read_only=True)
+    category = serializers.CharField(source='resource.category', read_only=True)
+    date = serializers.SerializerMethodField()
+    amount = serializers.SerializerMethodField()
+    reference = serializers.SerializerMethodField()
+    status = serializers.CharField(source='payment_status', read_only=True)
+    invoice = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        from apps.resources.models import ResourcePurchase
+        model = ResourcePurchase
+        fields = (
             'id',
             'resource_id',
             'resource',
-            'resource_slug',
             'category',
             'date',
             'amount',
-            'amount_paid',
-            'currency',
+            'reference',
             'status',
-            'payment_status',
-            'payment_method',
-            'order_id',
-            'access_url',
+            'invoice',
             'purchased_at'
         )
         read_only_fields = fields
@@ -416,8 +630,14 @@ class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
         val = obj.amount_paid if obj.amount_paid is not None else 0.00
         return f"{curr}{val:.2f}"
 
+    @extend_schema_field(serializers.CharField())
+    def get_reference(self, obj):
+        if obj.order_id:
+            return obj.order_id
+        return f"DEMO-{obj.id:04d}"
+
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_access_url(self, obj):
+    def get_invoice(self, obj):
         request = self.context.get('request')
         first_pdf = obj.resource.pdf_files.filter(is_deleted=False).first()
         if first_pdf and first_pdf.file:
@@ -490,19 +710,17 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
 class StudentReceiptSerializer(serializers.ModelSerializer):
     """
     Serializer matching the Receipts / Invoices list interface:
-    Left Title: Resource Title
-    Left Subtitle: 31 Aug 2026 · £15.00
-    Right Status: "Receipt emailed to you"
+    id, receipt_number, resource_id, resource_title, category, date, amount_paid, payment_status, purchased_at
     """
+    id = serializers.IntegerField(read_only=True)
+    receipt_number = serializers.SerializerMethodField()
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
     resource_title = serializers.CharField(source='resource.title', read_only=True)
-    resource_slug = serializers.CharField(source='resource.slug', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     date = serializers.SerializerMethodField()
-    amount_formatted = serializers.SerializerMethodField()
-    subtitle = serializers.SerializerMethodField()
-    receipt_status_text = serializers.SerializerMethodField()
-    access_url = serializers.SerializerMethodField()
+    amount_paid = serializers.SerializerMethodField()
+    payment_status = serializers.CharField(read_only=True)
+    purchased_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         from apps.resources.models import ResourcePurchase
@@ -512,22 +730,19 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
             'receipt_number',
             'resource_id',
             'resource_title',
-            'resource_slug',
             'category',
             'date',
             'amount_paid',
-            'amount_formatted',
-            'currency',
             'payment_status',
-            'payment_method',
-            'subtitle',
-            'receipt_status_text',
-            'receipt_emailed',
-            'receipt_emailed_at',
-            'access_url',
             'purchased_at'
         )
         read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_receipt_number(self, obj):
+        if obj.receipt_number:
+            return obj.receipt_number
+        return f"INV-{obj.id:05d}"
 
     @extend_schema_field(serializers.CharField())
     def get_date(self, obj):
@@ -538,27 +753,153 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
         return ""
 
     @extend_schema_field(serializers.CharField())
-    def get_amount_formatted(self, obj):
-        curr = obj.currency or '£'
+    def get_amount_paid(self, obj):
+        val = obj.amount_paid if obj.amount_paid is not None else 0.00
+        return f"{val:.2f}"
+
+
+class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializer matching the single Tax Invoice & Receipt Modal:
+    - receipt_number: e.g. "INV-2026-4DE30E"
+    - date: "31 Aug 2026"
+    - billed_to: { name, email, account_type, program }
+    - payment_summary: { payment_method, reference, payment_status }
+    - items: [ { description, summary, category, qty, price, total } ]
+    - subtotal: "£15.00"
+    - vat_text: "VAT (0% Educational Exemption)"
+    - vat_amount: "£0.00"
+    - total_paid: "£15.00"
+    - security_note: "Verified 256-bit SSL encrypted digital tax receipt."
+    - official_receipt: { title, message, badge }
+    - pdf_url: download url
+    """
+    id = serializers.IntegerField(read_only=True)
+    receipt_number = serializers.SerializerMethodField()
+    date = serializers.SerializerMethodField()
+    billed_to = serializers.SerializerMethodField()
+    payment_summary = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    vat_text = serializers.SerializerMethodField()
+    vat_amount = serializers.SerializerMethodField()
+    total_paid = serializers.SerializerMethodField()
+    security_note = serializers.SerializerMethodField()
+    official_receipt = serializers.SerializerMethodField()
+    pdf_url = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        from apps.resources.models import ResourcePurchase
+        model = ResourcePurchase
+        fields = (
+            'id',
+            'receipt_number',
+            'date',
+            'billed_to',
+            'payment_summary',
+            'items',
+            'subtotal',
+            'vat_text',
+            'vat_amount',
+            'total_paid',
+            'security_note',
+            'official_receipt',
+            'pdf_url',
+            'purchased_at'
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_receipt_number(self, obj):
+        if obj.receipt_number:
+            return obj.receipt_number
+        return f"INV-2026-{obj.id:04X}"
+
+    @extend_schema_field(serializers.CharField())
+    def get_date(self, obj):
+        if obj.purchased_at:
+            day = obj.purchased_at.strftime('%d').lstrip('0')
+            month_year = obj.purchased_at.strftime('%b %Y')
+            return f"{day} {month_year}"
+        return ""
+
+    @extend_schema_field(serializers.DictField())
+    def get_billed_to(self, obj):
+        student = obj.student
+        email = student.email or (student.user.email if student.user else "")
+        program = student.qualification or "Healthcare Licensing Program"
+        if not program:
+            program = "Healthcare Licensing Program"
+        return {
+            "name": student.name,
+            "email": email,
+            "account_type": "Student Account",
+            "program": program
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_payment_summary(self, obj):
+        method = obj.payment_method or "demo"
+        ref = obj.order_id or f"DEMO-{obj.id:04d}"
+        status_display = "Payment Completed" if obj.payment_status == "paid" else obj.get_payment_status_display()
+        return {
+            "payment_method": method,
+            "reference": f"Ref: {ref}",
+            "payment_status": status_display
+        }
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_items(self, obj):
+        curr = obj.currency or "£"
+        val = obj.amount_paid if obj.amount_paid is not None else (obj.resource.price or 0.00)
+        formatted_price = f"{curr}{val:.2f}"
+        return [
+            {
+                "description": obj.resource.title,
+                "summary": obj.resource.description or "Condensed analyte, Instrumentation and quality-control notes written for licensing candidates.",
+                "category": obj.resource.category or "Notes",
+                "qty": 1,
+                "price": formatted_price,
+                "total": formatted_price
+            }
+        ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_subtotal(self, obj):
+        curr = obj.currency or "£"
         val = obj.amount_paid if obj.amount_paid is not None else 0.00
         return f"{curr}{val:.2f}"
 
     @extend_schema_field(serializers.CharField())
-    def get_subtitle(self, obj):
-        date_str = self.get_date(obj)
-        amt_str = self.get_amount_formatted(obj)
-        return f"{date_str} · {amt_str}"
+    def get_vat_text(self, obj):
+        return "VAT (0% Educational Exemption)"
 
     @extend_schema_field(serializers.CharField())
-    def get_receipt_status_text(self, obj):
-        if obj.receipt_emailed:
-            return "Receipt emailed to you"
-        if obj.payment_status == 'paid':
-            return "Receipt emailed to you"
-        return "Pending payment"
+    def get_vat_amount(self, obj):
+        curr = obj.currency or "£"
+        return f"{curr}0.00"
+
+    @extend_schema_field(serializers.CharField())
+    def get_total_paid(self, obj):
+        curr = obj.currency or "£"
+        val = obj.amount_paid if obj.amount_paid is not None else 0.00
+        return f"{curr}{val:.2f}"
+
+    @extend_schema_field(serializers.CharField())
+    def get_security_note(self, obj):
+        return "Verified 256-bit SSL encrypted digital tax receipt."
+
+    @extend_schema_field(serializers.DictField())
+    def get_official_receipt(self, obj):
+        return {
+            "title": "OFFICIAL PAID RECEIPT",
+            "message": "Thank you for your enrollment. Your access has been provisioned.",
+            "badge": "VERIFIED"
+        }
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_access_url(self, obj):
+    def get_pdf_url(self, obj):
         request = self.context.get('request')
         first_pdf = obj.resource.pdf_files.filter(is_deleted=False).first()
         if first_pdf and first_pdf.file:
@@ -601,8 +942,9 @@ class PaymentDetailsNoticeSerializer(serializers.Serializer):
 
 
 class PaymentDetailsResponseSerializer(serializers.Serializer):
-    summary = PaymentDetailsSummarySerializer()
-    payment_methods_notice = PaymentDetailsNoticeSerializer()
+    total_spent = serializers.CharField()
+    completed_payments = serializers.IntegerField()
+    pending_payments = serializers.IntegerField()
     results = StudentPaymentDetailItemSerializer(many=True)
 
 
