@@ -285,13 +285,13 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             return Response({"count": 0, "results": []}, status=status.HTTP_200_OK)
 
         from apps.resources.models import ResourcePurchase
-        from .serializers import ResourcePurchaseSerializer
+        from .serializers import StudentPurchasedResourceCardSerializer
         purchases = ResourcePurchase.objects.filter(
             student=student,
             is_deleted=False
         ).select_related('resource').prefetch_related('resource__pdf_files').order_by('-purchased_at')
 
-        serializer = ResourcePurchaseSerializer(purchases, many=True, context={'request': request})
+        serializer = StudentPurchasedResourceCardSerializer(purchases, many=True, context={'request': request})
         return Response({
             "count": purchases.count(),
             "results": serializer.data

@@ -27,6 +27,7 @@ from apps.resources.emails import send_purchase_receipt_email
 from api.v1.courses.serializers import CourseEnrollmentSerializer
 from api.v1.resources.serializers import (
     ResourcePurchaseSerializer,
+    StudentPurchasedResourceCardSerializer,
     StudentPurchaseHistorySerializer,
     StudentPaymentDetailItemSerializer,
     StudentReceiptSerializer,
@@ -1880,7 +1881,7 @@ class StudentPurchasedResourcesView(APIView):
             )
 
         purchases = purchases.order_by('-purchased_at')
-        serializer = ResourcePurchaseSerializer(purchases, many=True, context={'request': request})
+        serializer = StudentPurchasedResourceCardSerializer(purchases, many=True, context={'request': request})
         return Response({
             "count": purchases.count(),
             "results": serializer.data

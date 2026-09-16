@@ -304,6 +304,64 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
         return ResourcePurchaseFileSerializer(pdfs, many=True, context={'request': request}).data
 
 
+class StudentPurchasedResourceFileSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ResourcePDF
+        fields = ('id', 'title', 'file', 'file_size')
+
+    @extend_schema_field(serializers.CharField())
+    def get_file(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+
+class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
+    """
+    Minimal serializer for Student Purchased Resources list.
+    Returns: id, resource_id, category, title, description, purchased_date, files.
+    """
+    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    category = serializers.CharField(source='resource.category', read_only=True)
+    title = serializers.CharField(source='resource.title', read_only=True)
+    description = serializers.CharField(source='resource.description', read_only=True)
+    purchased_date = serializers.SerializerMethodField()
+    files = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.resources.models import ResourcePurchase
+        model = ResourcePurchase
+        fields = (
+            'id',
+            'resource_id',
+            'category',
+            'title',
+            'description',
+            'purchased_date',
+            'files',
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            day = obj.purchased_at.strftime('%d').lstrip('0')
+            month_year = obj.purchased_at.strftime('%b %Y')
+            return f"{day} {month_year}"
+        return ""
+
+    @extend_schema_field(StudentPurchasedResourceFileSerializer(many=True))
+    def get_files(self, obj):
+        request = self.context.get('request')
+        pdfs = obj.resource.pdf_files.filter(is_deleted=False).order_by('-id')
+        return StudentPurchasedResourceFileSerializer(pdfs, many=True, context={'request': request}).data
+
+
 class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
     """
     Serializer specifically modeled for the Student Purchase History Table:
