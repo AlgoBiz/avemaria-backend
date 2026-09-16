@@ -180,47 +180,49 @@ class FlexibleDateField(serializers.DateField):
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):
-    institution_and_year = serializers.CharField(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
     documents = StudentDocumentSerializer(many=True, read_only=True)
-    avatar_url = serializers.SerializerMethodField(read_only=True)
-
     date_of_birth = FlexibleDateField(required=False, allow_null=True)
     passport_expiry_date = FlexibleDateField(required=False, allow_null=True)
-
-    # Convenient aliases matching various frontend field namings
     full_name = serializers.CharField(source='name', required=False, allow_blank=True)
     highest_qualification = serializers.CharField(source='qualification', required=False, allow_blank=True)
-    university = serializers.CharField(source='institution', required=False, allow_blank=True)
-    year_of_graduation = serializers.CharField(source='graduating_year', required=False, allow_blank=True)
-    expiry_date = FlexibleDateField(source='passport_expiry_date', required=False, allow_null=True)
-    passport_expiry = FlexibleDateField(source='passport_expiry_date', required=False, allow_null=True)
     dob = FlexibleDateField(source='date_of_birth', required=False, allow_null=True)
 
     class Meta:
         from apps.students.models import Student
         model = Student
         fields = (
-            'id', 'avatar', 'avatar_url',
-            # Personal Details
-            'name', 'full_name', 'email', 'phone', 'whatsapp', 'date_of_birth', 'dob', 'gender', 'nationality',
-            # Address Details
-            'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country',
-            # Academic & Professional Details
-            'qualification', 'highest_qualification', 'institution', 'university',
-            'graduating_year', 'year_of_graduation', 'institution_and_year',
-            'current_role', 'employer_hospital', 'years_of_experience',
-            # Passport Details
-            'passport_number', 'country_of_issue', 'passport_expiry_date', 'expiry_date', 'passport_expiry',
-            # Documents
+            'id',
+            'full_name',
+            'email',
+            'phone',
+            'whatsapp',
+            'date_of_birth',
+            'dob',
+            'gender',
+            'nationality',
+            'address_line_1',
+            'address_line_2',
+            'city',
+            'state',
+            'postal_code',
+            'country',
+            'highest_qualification',
+            'institution',
+            'graduating_year',
+            'current_role',
+            'employer_hospital',
+            'years_of_experience',
+            'passport_number',
+            'country_of_issue',
+            'passport_expiry_date',
             'documents',
-            # General / System
-            'location', 'status', 'status_display',
-            'registered_date', 'created_at', 'updated_at'
+            'status',
+            'registered_date',
+            'created_at',
+            'updated_at'
         )
         read_only_fields = (
-            'id', 'email', 'status', 'status_display',
-            'institution_and_year', 'documents', 'registered_date', 'created_at', 'updated_at'
+            'id', 'email', 'status', 'documents', 'registered_date', 'created_at', 'updated_at'
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -271,15 +273,9 @@ class StudentProfileSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # Ensure convenience aliases are always present in JSON output for direct binding
         ret['full_name'] = instance.name
         ret['highest_qualification'] = instance.qualification
-        ret['university'] = instance.institution
-        ret['year_of_graduation'] = instance.graduating_year
-        ret['expiry_date'] = str(instance.passport_expiry_date) if instance.passport_expiry_date else None
         ret['dob'] = str(instance.date_of_birth) if instance.date_of_birth else None
-        if not ret.get('avatar_url') and ret.get('avatar'):
-            ret['avatar_url'] = ret['avatar']
         return ret
 
 

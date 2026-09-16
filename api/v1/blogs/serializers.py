@@ -44,25 +44,28 @@ class BlogCategorySerializer(serializers.ModelSerializer):
 
 class BlogListSerializer(serializers.ModelSerializer):
     heading = serializers.CharField(source='title', read_only=True)
-    excerpt = serializers.CharField(source='sub_heading', read_only=True)
-    content_blocks_count = serializers.IntegerField(read_only=True)
+    publish_date = serializers.SerializerMethodField()
+    cover_image = serializers.SerializerMethodField()
     blocks_count = serializers.IntegerField(source='content_blocks_count', read_only=True)
-    publish_date_formatted = serializers.CharField(read_only=True)
-    cover_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Blog
         fields = (
-            'id', 'title', 'heading', 'slug', 'sub_heading', 'excerpt', 'category',
-            'read_time', 'publish_date', 'publish_date_formatted',
-            'author_name', 'cover_image', 'cover_image_url',
-            'content_blocks_count', 'blocks_count',
-            'is_published', 'is_active', 'is_deleted',
-            'created_at'
+            'id',
+            'heading',
+            'slug',
+            'author_name',
+            'sub_heading',
+            'category',
+            'read_time',
+            'publish_date',
+            'cover_image',
+            'blocks_count',
+            'is_published',
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_cover_image_url(self, obj):
+    def get_cover_image(self, obj):
         if obj.cover_image:
             request = self.context.get('request')
             if request:
@@ -70,32 +73,33 @@ class BlogListSerializer(serializers.ModelSerializer):
             return obj.cover_image.url
         return None
 
+    @extend_schema_field(serializers.CharField())
+    def get_publish_date(self, obj):
+        return obj.publish_date_formatted or (str(obj.publish_date) if obj.publish_date else "")
+
 
 class BlogDetailSerializer(serializers.ModelSerializer):
     heading = serializers.CharField(source='title', required=False)
-    excerpt = serializers.CharField(source='sub_heading', required=False)
     category = serializers.CharField(required=True, allow_blank=False)
-    content_blocks_count = serializers.IntegerField(read_only=True)
     blocks_count = serializers.IntegerField(source='content_blocks_count', read_only=True)
-    publish_date_formatted = serializers.CharField(read_only=True)
+    publish_date = serializers.SerializerMethodField()
+    cover_image = serializers.SerializerMethodField()
     content_blocks = serializers.JSONField(required=False, default=list)
     meta_keywords = serializers.JSONField(required=False, default=list)
     meta_tags = serializers.JSONField(source='meta_keywords', required=False, read_only=True)
-    cover_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Blog
         fields = (
-            'id', 'title', 'heading', 'slug', 'sub_heading', 'excerpt', 'category',
-            'read_time', 'publish_date', 'publish_date_formatted',
-            'author_name', 'cover_image', 'cover_image_url',
-            'content_blocks', 'content_blocks_count', 'blocks_count',
+            'id', 'heading', 'slug', 'sub_heading', 'category',
+            'read_time', 'publish_date',
+            'author_name', 'cover_image',
+            'content_blocks', 'blocks_count',
             'meta_description', 'meta_keywords', 'meta_tags',
             'is_published', 'is_active', 'is_deleted',
             'created_at', 'updated_at'
         )
         extra_kwargs = {
-            'title': {'required': False},
             'sub_heading': {'required': False},
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
@@ -103,13 +107,17 @@ class BlogDetailSerializer(serializers.ModelSerializer):
         }
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_cover_image_url(self, obj):
+    def get_cover_image(self, obj):
         if obj.cover_image:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.cover_image.url)
             return obj.cover_image.url
         return None
+
+    @extend_schema_field(serializers.CharField())
+    def get_publish_date(self, obj):
+        return obj.publish_date_formatted or (str(obj.publish_date) if obj.publish_date else "")
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -121,14 +129,14 @@ class BlogDetailSerializer(serializers.ModelSerializer):
 
         # Title / Heading alias
         if not mutable_data.get('title'):
-            for alias in ['heading', 'article_title', 'name']:
+            for alias in ['heading', 'article_title', 'name', 'title']:
                 if mutable_data.get(alias):
                     mutable_data['title'] = mutable_data[alias]
                     break
 
-        # Sub Heading / Excerpt / Overview alias
+        # Sub Heading / Subheading / Excerpt / Overview alias
         if not mutable_data.get('sub_heading'):
-            for alias in ['excerpt', 'overview', 'summary', 'sub_title', 'subheading']:
+            for alias in ['subheading', 'sub_heading', 'excerpt', 'overview', 'summary', 'sub_title']:
                 if mutable_data.get(alias):
                     mutable_data['sub_heading'] = mutable_data[alias]
                     break
@@ -173,13 +181,6 @@ class BlogDetailSerializer(serializers.ModelSerializer):
                     mutable_data['author_name'] = mutable_data[alias]
                     break
 
-        # Cover image alias
-        if not mutable_data.get('cover_image'):
-            for alias in ['image', 'photo', 'file', 'cover']:
-                if mutable_data.get(alias):
-                    mutable_data['cover_image'] = mutable_data[alias]
-                    break
-
         # Meta tags alias
         if not mutable_data.get('meta_keywords'):
             for alias in ['meta_tags', 'tags', 'keywords']:
@@ -203,10 +204,10 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             except Exception:
                 mutable_data['content_blocks'] = []
 
-        # Parse publish_date (e.g. "11 September 2026", "2026-09-11")
+        # Parse publish_date (e.g. "15 September 2026", "2026-09-15")
         pdate = mutable_data.get('publish_date')
         if pdate and isinstance(pdate, str):
-            for fmt in ('%Y-%m-%d', '%d %B %Y', '%d %b %Y', '%B %d, %Y', '%d/%m/%Y'):
+            for fmt in ('%Y-%m-%d', '%d %B %Y', '%d %b %Y', '%B %d, %Y', '%d/%m/%Y', '%d-%m-%Y'):
                 try:
                     dt = datetime.datetime.strptime(pdate.strip(), fmt)
                     mutable_data['publish_date'] = dt.date().isoformat()
@@ -218,12 +219,56 @@ class BlogDetailSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if not attrs.get('title') and not (self.instance and self.instance.title):
-            raise serializers.ValidationError({'title': 'Heading (Article Title) is required.'})
+            raise serializers.ValidationError({'heading': 'Heading (Article Title) is required.'})
         if not attrs.get('sub_heading') and not (self.instance and self.instance.sub_heading):
-            raise serializers.ValidationError({'sub_heading': 'Sub Heading (Overview / Excerpt) is required.'})
+            raise serializers.ValidationError({'subheading': 'Subheading (Overview / Excerpt) is required.'})
         if not attrs.get('category') and not (self.instance and self.instance.category):
             raise serializers.ValidationError({'category': 'Blog category is required. A category must be created or selected before adding a blog article.'})
         return attrs
+
+    def _extract_publish_date(self, data):
+        pdate = data.get('publish_date')
+        if pdate:
+            if isinstance(pdate, (datetime.date, datetime.datetime)):
+                return pdate if isinstance(pdate, datetime.date) else pdate.date()
+            if isinstance(pdate, str):
+                for fmt in ('%Y-%m-%d', '%d %B %Y', '%d %b %Y', '%B %d, %Y', '%d/%m/%Y', '%d-%m-%Y'):
+                    try:
+                        return datetime.datetime.strptime(pdate.strip(), fmt).date()
+                    except ValueError:
+                        continue
+        return None
+
+    def create(self, validated_data):
+        raw_data = self.initial_data if hasattr(self, 'initial_data') and self.initial_data else {}
+        pdate = self._extract_publish_date(raw_data)
+        if pdate:
+            validated_data['publish_date'] = pdate
+
+        cover_image = None
+        if self.context.get('request') and self.context.get('request').data:
+            cover_image = self.context['request'].data.get('cover_image') or self.context['request'].data.get('image')
+        if not cover_image and raw_data:
+            cover_image = raw_data.get('cover_image') or raw_data.get('image')
+        if cover_image and hasattr(cover_image, 'read'):
+            validated_data['cover_image'] = cover_image
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        raw_data = self.initial_data if hasattr(self, 'initial_data') and self.initial_data else {}
+        if 'publish_date' in raw_data:
+            pdate = self._extract_publish_date(raw_data)
+            if pdate:
+                validated_data['publish_date'] = pdate
+
+        cover_image = None
+        if self.context.get('request') and self.context.get('request').data:
+            cover_image = self.context['request'].data.get('cover_image') or self.context['request'].data.get('image')
+        if not cover_image and raw_data:
+            cover_image = raw_data.get('cover_image') or raw_data.get('image')
+        if cover_image and hasattr(cover_image, 'read'):
+            validated_data['cover_image'] = cover_image
+        return super().update(instance, validated_data)
 
 
 class BlogStatsSerializer(serializers.Serializer):
