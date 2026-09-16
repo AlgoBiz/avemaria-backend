@@ -172,6 +172,7 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'anjalaparveen3456@gmail.com'
 EMAIL_HOST_PASSWORD = 'ezpm ouun qxkp dhyg'
 DEFAULT_FROM_EMAIL = 'anjalaparveen3456@gmail.com'
+EMAIL_TIMEOUT = 5
 
 # Frontend & Password Reset Configuration
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://avemaria-frontend.vercel.app')
