@@ -9,7 +9,7 @@ urlpatterns = [
 
     # OpenAPI 3 Schema & Interactive UI
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/docs/', SpectacularSwaggerView.as_view(template_name='swagger_ui.html', url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 
     # Versioned API Endpoints
