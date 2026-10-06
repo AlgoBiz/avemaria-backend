@@ -8,6 +8,7 @@ def organize_user_admin_tags(result, generator, request, public):
       - 'USER SIDE - <Module>' (Student & Public Portal APIs)
       - 'ADMIN SIDE - <Module>' (Admin Management & Dashboard APIs)
 
+
     Ensures that tags and paths are grouped and ordered so that all USER SIDE
     endpoints appear in the top section, followed by all ADMIN SIDE endpoints.
     """
