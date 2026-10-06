@@ -5,10 +5,8 @@
   <title>{{ title|default:"Avemaria API Documentation" }}</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {% if favicon_href %}
-  <link rel="icon" href="{{ favicon_href }}">{% else %}
-  <link rel="icon" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/favicon-32x32.png">{% endif %}
-  <link rel="stylesheet" href="{{ dist }}/swagger-ui.css">
+  <link rel="icon" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/favicon-32x32.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/swagger-ui.css">
   <style>
     html {
       box-sizing: border-box;
@@ -99,8 +97,8 @@
 
 <body>
   <div id="swagger-ui"></div>
-  <script src="{{ dist }}/swagger-ui-bundle.js"></script>
-  <script src="{{ dist }}/swagger-ui-standalone-preset.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/swagger-ui-standalone-preset.js"></script>
   {% if script_url %}
   <script src="{{ script_url }}"></script>
   {% else %}
