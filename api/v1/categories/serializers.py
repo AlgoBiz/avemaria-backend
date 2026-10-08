@@ -111,7 +111,7 @@ class CategoryListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ('title', 'cover_image', 'description', 'programmes_count')
+        fields = ('id', 'title', 'cover_image', 'description', 'programmes_count')
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_cover_image(self, obj):
