@@ -3,6 +3,8 @@ from drf_spectacular.utils import extend_schema_field
 from apps.enquiries.models import Enquiry
 
 class EnquiryCreateSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     full_name = serializers.CharField(required=False)
     course_name = serializers.CharField(required=False)
     subject = serializers.CharField(required=False, allow_blank=True)
@@ -21,11 +23,12 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Enquiry
         fields = (
-            'id', 'full_name', 'email', 'phone',
+            'id', 'slug', 'full_name', 'email', 'phone',
             'course_name', 'subject', 'message',
             'candidate_name', 'name', 'topic', 'programme_interest',
             'status', 'status_display', 'created_at'
         )
+        read_only_fields = ('id', 'slug', 'created_at')
         extra_kwargs = {
             'candidate_name': {'write_only': True, 'required': False},
             'name': {'write_only': True, 'required': False},
@@ -125,6 +128,8 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
         # Populate full_name and course_name
         ret['full_name'] = instance.candidate_name
         ret['course_name'] = instance.topic
@@ -152,6 +157,8 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
 
 
 class EnquiryAdminSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     full_name = serializers.CharField(source='candidate_name', read_only=True)
     course_name = serializers.CharField(source='topic', read_only=True)
     subject = serializers.CharField(source='inquiry_subject', read_only=True)
@@ -161,11 +168,12 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Enquiry
         fields = (
-            'id', 'full_name', 'email', 'phone', 'course_name',
+            'id', 'slug', 'full_name', 'email', 'phone', 'course_name',
             'subject', 'message', 'status',
             'is_active', 'is_deleted',
             'received', 'created_at', 'updated_at'
         )
+        read_only_fields = ('id', 'slug', 'received', 'created_at', 'updated_at')
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
@@ -174,6 +182,8 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
         if not ret.get('subject'):
             ret['subject'] = instance.inquiry_subject or instance.topic
         if not ret.get('message'):

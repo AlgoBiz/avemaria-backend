@@ -45,6 +45,7 @@ class GalleryItem(BaseModel):
     image = models.ImageField(upload_to='gallery/')
     alt_text = models.CharField(max_length=255, blank=True, help_text="Accessibility alt text")
     order = models.PositiveIntegerField(default=0)
+    slug = models.SlugField(max_length=255, blank=True, default='', db_index=True)
 
     class Meta:
         verbose_name = 'Campus Gallery Item'
@@ -58,6 +59,14 @@ class GalleryItem(BaseModel):
             self.caption = self.title
         if self.category and not self.category_slug:
             self.category_slug = slugify(self.category)
+        if not self.slug:
+            base_slug = slugify(self.title or self.caption) or f"gallery-{self.category_slug or 'photo'}"
+            unique_slug = base_slug
+            counter = 1
+            while GalleryItem.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
         super().save(*args, **kwargs)
 
     def __str__(self):

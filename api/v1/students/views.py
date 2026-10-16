@@ -1,8 +1,10 @@
 import io
+import uuid
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django.db.models import Q
 from rest_framework import viewsets, permissions, filters, status
+from rest_framework.exceptions import NotFound
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -47,6 +49,28 @@ class StudentViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
+    def get_object(self):
+        lookup = self.kwargs.get('pk')
+        queryset = self.filter_queryset(self.get_queryset())
+        try:
+            val_uuid = uuid.UUID(str(lookup))
+            obj = queryset.filter(uuid=val_uuid).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        except (ValueError, AttributeError):
+            pass
+        if str(lookup).isdigit():
+            obj = queryset.filter(id=int(lookup)).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        obj = queryset.filter(slug=lookup).first()
+        if obj:
+            self.check_object_permissions(self.request, obj)
+            return obj
+        raise NotFound("Student not found.")
+
     def get_queryset(self):
         qs = Student.objects.filter(is_deleted=False)
         order_type = self.request.query_params.get('type')
@@ -63,6 +87,14 @@ class StudentViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(id__in=purchased_ids)
 
         return qs.order_by('-created_at', '-id')
+
+    @extend_schema(
+        summary="List student enrolments and orders",
+        description="Returns list of student enrolments and orders including location, purchase date, GST breakdown, and tax invoice links.",
+        responses={200: StudentListSerializer}
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(
         summary="Student enrolment statistics",

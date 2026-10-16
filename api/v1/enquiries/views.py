@@ -1,6 +1,8 @@
 import csv
+import uuid
 from django.http import HttpResponse
 from rest_framework import viewsets, permissions, filters, status
+from rest_framework.exceptions import NotFound
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -34,6 +36,28 @@ class EnquiryViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'create_enquiry', 'contact_enquiry', 'submit_enquiry', 'export_csv', 'export_csv_hyphen', 'export_leads']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        lookup = self.kwargs.get('pk')
+        queryset = self.filter_queryset(self.get_queryset())
+        try:
+            val_uuid = uuid.UUID(str(lookup))
+            obj = queryset.filter(uuid=val_uuid).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        except (ValueError, AttributeError):
+            pass
+        if str(lookup).isdigit():
+            obj = queryset.filter(id=int(lookup)).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        obj = queryset.filter(slug=lookup).first()
+        if obj:
+            self.check_object_permissions(self.request, obj)
+            return obj
+        raise NotFound("Enquiry not found.")
 
     def get_queryset(self):
         qs = Enquiry.objects.filter(is_deleted=False)

@@ -8,6 +8,8 @@ from apps.faculty.models import Faculty
 from api.v1.categories.serializers import CategorySerializer
 
 class CourseListSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     category = serializers.CharField(source='category.title', read_only=True)
     short_description = serializers.CharField(source='summary', read_only=True)
     cover_image = serializers.SerializerMethodField()
@@ -19,6 +21,7 @@ class CourseListSerializer(serializers.ModelSerializer):
         model = Course
         fields = (
             'id',
+            'slug',
             'title',
             'category',
             'cover_image',
@@ -32,6 +35,14 @@ class CourseListSerializer(serializers.ModelSerializer):
             'faculty_name',
             'faculty_qualification',
         )
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_cover_image(self, obj):
@@ -96,6 +107,8 @@ class CourseListSerializer(serializers.ModelSerializer):
 
 
 class CourseDetailSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     category = CategorySerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(),
@@ -208,10 +221,16 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         for k, v in ret.items():
             if k not in ordered_ret:
                 ordered_ret[k] = v
+        if hasattr(instance, 'uuid'):
+            ordered_ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ordered_ret['slug'] = instance.slug
         return ordered_ret
 
 
 class CourseWriteSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     category_name = serializers.CharField(source='category.title', read_only=True)
     short_description = serializers.CharField(source='summary', required=False, allow_blank=True)
     faculty = serializers.PrimaryKeyRelatedField(queryset=Faculty.objects.filter(is_deleted=False), required=False, allow_null=True)
@@ -293,6 +312,14 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'faculty_qualification': {'required': False, 'allow_blank': True},
             'faculty_experience': {'required': False, 'allow_blank': True},
         }
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -506,7 +533,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
 
             faculty_list.append({
-                "id": instance.faculty.id,
+                "id": str(instance.faculty.uuid),
                 "faculty_name": instance.faculty.name or instance.faculty_name or "",
                 "faculty_title": instance.faculty.title or instance.faculty_title or "",
                 "faculty_qualification": instance.faculty.qualification or instance.faculty_qualification or "",
@@ -529,7 +556,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             })
 
         return OrderedDict([
-            ('id', instance.id),
+            ('id', str(instance.uuid)),
+            ('slug', instance.slug),
             ('title', instance.title),
             ('category', instance.category.title if instance.category else None),
             ('short_description', instance.summary or ''),

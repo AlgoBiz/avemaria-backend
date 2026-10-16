@@ -1,8 +1,10 @@
+import uuid
 from django.db import models
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from apps.testimonials.models import Testimonial
@@ -51,6 +53,33 @@ class TestimonialViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve', 'stats']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        lookup_val = self.kwargs.get(lookup_url_kwarg)
+
+        obj = None
+        # Check UUID
+        try:
+            val_uuid = uuid.UUID(str(lookup_val))
+            obj = queryset.filter(uuid=val_uuid).first()
+        except (ValueError, AttributeError):
+            pass
+
+        # Check numeric ID
+        if obj is None and str(lookup_val).isdigit():
+            obj = queryset.filter(id=int(lookup_val)).first()
+
+        # Check slug
+        if obj is None:
+            obj = queryset.filter(slug=lookup_val).first()
+
+        if obj is None:
+            raise NotFound("Testimonial not found.")
+
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     @extend_schema(
         summary="Testimonial dashboard metrics",

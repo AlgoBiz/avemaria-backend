@@ -13,6 +13,7 @@ class Testimonial(BaseModel):
     is_published = models.BooleanField(default=True, help_text="True for Published, False for Unpublished / Draft")
     is_student_submission = models.BooleanField(default=False, help_text="Direct student feedback submission")
     is_featured = models.BooleanField(default=True)
+    slug = models.SlugField(max_length=180, blank=True, default='', db_index=True)
 
     class Meta:
         verbose_name = 'Student Testimonial'
@@ -26,6 +27,15 @@ class Testimonial(BaseModel):
                 self.initials = f"{parts[0][0]}{parts[-1][0]}".upper()
             elif len(parts) == 1:
                 self.initials = parts[0][:2].upper()
+        if not self.slug:
+            from django.utils.text import slugify
+            base_slug = slugify(self.candidate_name) or 'testimonial'
+            unique_slug = base_slug
+            counter = 1
+            while Testimonial.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
         super().save(*args, **kwargs)
 
     def __str__(self):

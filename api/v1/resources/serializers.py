@@ -4,9 +4,20 @@ from drf_spectacular.utils import extend_schema_field
 from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
 
 class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
+
     class Meta:
         model = ResourceCategory
-        fields = ('id', 'name', 'created_at', 'updated_at')
+        fields = ('id', 'name', 'slug', 'created_at', 'updated_at')
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -22,15 +33,25 @@ class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
 
 
 class ResourceCategorySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     resources_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = ResourceCategory
-        fields = ('id', 'name', 'resources_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
+        fields = ('id', 'name', 'slug', 'resources_count', 'is_active', 'is_deleted', 'created_at', 'updated_at')
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False}
         }
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -46,14 +67,23 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
 
 
 class ResourcePDFSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     uploaded_at = serializers.DateTimeField(source='created_at', read_only=True)
 
     class Meta:
         model = ResourcePDF
         fields = ('id', 'file', 'file_size', 'uploaded_at', 'created_at')
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
+
 
 class ResourceListSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     highlights = serializers.JSONField(read_only=True)
 
@@ -61,6 +91,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
         model = PaidResource
         fields = (
             'id',
+            'slug',
             'category',
             'price',
             'title',
@@ -78,10 +109,16 @@ class ResourceListSerializer(serializers.ModelSerializer):
         for k, v in ret.items():
             if k not in ordered_ret:
                 ordered_ret[k] = v
+        if hasattr(instance, 'uuid'):
+            ordered_ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ordered_ret['slug'] = instance.slug
         return ordered_ret
 
 
 class PaidResourceSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     pdf_files = ResourcePDFSerializer(many=True, read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     category = serializers.CharField(required=True, allow_blank=False)
@@ -91,6 +128,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         model = PaidResource
         fields = (
             'id',
+            'slug',
             'title',
             'category',
             'price',
@@ -118,6 +156,10 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         for k, v in ret.items():
             if k not in ordered_ret:
                 ordered_ret[k] = v
+        if hasattr(instance, 'uuid'):
+            ordered_ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ordered_ret['slug'] = instance.slug
         return ordered_ret
 
     def to_internal_value(self, data):

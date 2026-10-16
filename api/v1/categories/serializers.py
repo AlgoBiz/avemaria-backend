@@ -3,16 +3,27 @@ from drf_spectacular.utils import extend_schema_field
 from apps.categories.models import Category
 
 class CategoryCreateSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
+
     class Meta:
         model = Category
         fields = (
-            'id', 'title', 'cover_image',
+            'id', 'title', 'slug', 'cover_image',
             'description', 'created_at'
         )
         extra_kwargs = {
             'cover_image': {'required': False, 'allow_null': True},
             'description': {'required': False, 'allow_blank': True}
         }
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -49,16 +60,27 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     programmes_count = serializers.IntegerField(read_only=True)
     programmes_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
         fields = (
-            'id', 'title', 'cover_image',
+            'id', 'title', 'slug', 'cover_image',
             'description', 'programmes_count', 'programmes_label', 'order',
             'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
+
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},

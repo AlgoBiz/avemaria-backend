@@ -4,11 +4,14 @@ from apps.gallery.models import GalleryItem, GalleryCategory
 
 
 class GalleryCategoryCreateSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     name = serializers.CharField(required=False)
 
     class Meta:
         model = GalleryCategory
-        fields = ('id', 'name', 'is_active', 'created_at', 'updated_at')
+        fields = ('id', 'slug', 'name', 'is_active', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'created_at', 'updated_at')
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -53,11 +56,19 @@ class GalleryCategoryCreateSerializer(serializers.ModelSerializer):
             return existing
         return super().create(validated_data)
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
+        return ret
+
 
 GalleryCategoryListSerializer = GalleryCategoryCreateSerializer
 
 
 class GalleryCategorySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     category = serializers.CharField(source='name', required=False)
     name = serializers.CharField(required=False)
     description = serializers.CharField(required=False, allow_blank=True, default='')
@@ -68,10 +79,11 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = GalleryCategory
         fields = (
-            'id', 'name', 'category', 'description',
+            'id', 'slug', 'name', 'category', 'description',
             'image', 'alt_text', 'photos_count',
             'is_active', 'created_at', 'updated_at'
         )
+        read_only_fields = ('id', 'slug', 'created_at', 'updated_at')
         extra_kwargs = {
             'description': {'required': False, 'allow_blank': True},
             'alt_text': {'required': False, 'allow_blank': True},
@@ -136,6 +148,8 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
         ret['name'] = instance.name
         ret['category'] = instance.name
 
@@ -168,6 +182,8 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
 
 
 class GalleryItemSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     title = serializers.CharField(required=False, allow_blank=True, write_only=True)
     caption = serializers.CharField(required=False, allow_blank=True, write_only=True)
     order = serializers.IntegerField(required=False, default=0, write_only=True)
@@ -176,10 +192,11 @@ class GalleryItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = GalleryItem
         fields = (
-            'id', 'category', 'image', 'alt_text',
+            'id', 'slug', 'category', 'image', 'alt_text',
             'is_active', 'is_deleted', 'created_at', 'updated_at',
             'title', 'caption', 'order', 'category_slug'
         )
+        read_only_fields = ('id', 'slug', 'created_at', 'updated_at')
         extra_kwargs = {
             'image': {'required': False},
             'is_active': {'default': True, 'required': False},
@@ -259,6 +276,8 @@ class GalleryItemSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
         # Exclude unwanted fields from response
         for field in ('title', 'caption', 'category_slug', 'image_url', 'order'):
             ret.pop(field, None)
