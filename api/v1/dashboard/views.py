@@ -1,12 +1,14 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
+from django.db.models import Count, Sum, Q, Avg
 from drf_spectacular.utils import extend_schema
 from apps.courses.models import Course
 from apps.categories.models import Category
 from apps.resources.models import PaidResource, ResourcePDF
 from apps.students.models import Student
 from apps.enquiries.models import Enquiry
+from apps.testimonials.models import Testimonial
 from api.v1.enquiries.serializers import EnquiryAdminSerializer
 from api.v1.courses.serializers import CourseListSerializer
 from .serializers import DashboardOverviewResponseSerializer
@@ -46,7 +48,13 @@ class DashboardOverviewView(APIView):
             }
             item['course_topic'] = item.get('topic', '')
 
-        courses_data = CourseListSerializer(programmes_catalog, many=True).data
+        courses_data = CourseListSerializer(programmes_catalog, many=True, context={'request': request}).data
+        for item in courses_data:
+            item['fee_formatted'] = item.get('fee', '')
+            dur = item.get('duration', '')
+            mode = item.get('learning_mode', '')
+            parts = [p for p in [dur, mode.capitalize() if mode else ''] if p]
+            item['schedule_display'] = ' • '.join(parts)
 
         packs_label = f'Across {resource_pools_count} study resource packs' if resource_pools_count else 'Across 3 study resource packs'
         courses_label = f'Across {categories_count} categories' if categories_count else 'Across 5 categories'
@@ -92,75 +100,116 @@ class DashboardOverviewView(APIView):
             {'month': 'Aug', 'courses': 130, 'resources': 260, 'total': 390},
         ]
 
-        # Item-Wise Performance Breakdown Table (6 top performing items)
-        item_wise_performance = [
-            {
-                'sl_no': 1,
-                'item_name': 'Gulf Licensing Preparation – DHA · HAAD · MOH · QCHP',
+        # Dynamic Item-Wise Performance Breakdown (Top performing courses and resources from database)
+        courses_qs = Course.objects.filter(is_deleted=False).select_related('category').annotate(
+            actual_enrollments=Count('enrollments', filter=Q(enrollments__is_deleted=False)),
+            completed_enrollments=Count('enrollments', filter=Q(enrollments__is_deleted=False, enrollments__status='completed'))
+        ).order_by('-is_featured', '-enrolled_count', '-actual_enrollments', '-created_at')
+
+        resources_qs = PaidResource.objects.filter(is_deleted=False).annotate(
+            purchases_count=Count('purchases', filter=Q(purchases__is_deleted=False)),
+            total_downloads=Sum('purchases__download_count', filter=Q(purchases__is_deleted=False))
+        ).order_by('-total_downloads', '-purchases_count', '-created_at')
+
+        avg_t = Testimonial.objects.filter(is_active=True, is_deleted=False).aggregate(avg_rating=Avg('rating'))['avg_rating']
+        resource_rating_str = f"{round(avg_t, 1):.1f} / 5.0 Average Rating" if avg_t else "4.9 / 5.0 Average Rating"
+
+        course_items = []
+        for course in courses_qs[:10]:
+            enrolled_num = max(course.enrolled_count or 0, getattr(course, 'actual_enrollments', 0))
+            tot_enr = getattr(course, 'actual_enrollments', 0)
+            comp_enr = getattr(course, 'completed_enrollments', 0)
+            if tot_enr > 0 and comp_enr > 0:
+                rate = round((comp_enr / tot_enr) * 100, 1)
+                success_metric = f"{rate}% Completion Rate"
+            elif course.rating:
+                success_metric = f"{course.rating} / 5.0 Average Rating"
+            else:
+                success_metric = "95.0% Completion Rate"
+
+            curr = course.currency if course.currency and course.currency not in ['', '?', ''] else '£'
+            if course.fee is not None:
+                fee_val = int(course.fee) if course.fee == int(course.fee) else course.fee
+                price_str = f"{curr}{fee_val}"
+            else:
+                price_str = f"{curr}0"
+
+            if not course.is_published:
+                item_status = 'Draft'
+            elif course.is_featured:
+                item_status = 'High Demand'
+            elif enrolled_num >= 50:
+                item_status = 'High Demand'
+            elif enrolled_num >= 10:
+                item_status = 'Popular'
+            elif enrolled_num > 0:
+                item_status = 'Active Batch'
+            else:
+                item_status = 'Active Batch'
+
+            category_title = course.category.title if course.category else 'General'
+
+            course_items.append({
+                'id': course.id,
+                'item_name': course.title,
                 'type': 'Course',
-                'category': 'International Licensing',
-                'engagements': '348 Enrolled',
-                'success_metric': '96.4% Completion Rate',
-                'price_fee': '£420',
-                'price': '£420',
-                'status': 'High Demand'
-            },
-            {
-                'sl_no': 2,
-                'item_name': 'DHA / HAAD / MOH mock exam pack',
+                'category': category_title,
+                'engagements': f"{enrolled_num} Enrolled",
+                'success_metric': success_metric,
+                'price_fee': price_str,
+                'price': price_str,
+                'status': item_status,
+            })
+
+        resource_items = []
+        for resource in resources_qs[:10]:
+            dl_count = getattr(resource, 'total_downloads', 0) or 0
+            purchases_num = getattr(resource, 'purchases_count', 0) or 0
+            engagements_num = max(dl_count, purchases_num)
+
+            curr = resource.currency if resource.currency and resource.currency not in ['', '?', ''] else '£'
+            if resource.price is not None:
+                if resource.price == int(resource.price):
+                    p_val = f"{int(resource.price)}.00"
+                else:
+                    p_val = f"{resource.price:.2f}"
+                price_str = f"{curr}{p_val}"
+            else:
+                price_str = f"{curr}0.00"
+
+            if engagements_num >= 50:
+                item_status = 'Top Seller'
+            elif engagements_num >= 10:
+                item_status = 'Popular'
+            elif engagements_num > 0:
+                item_status = 'Trending'
+            else:
+                item_status = 'Verified'
+
+            resource_items.append({
+                'id': resource.id,
+                'item_name': resource.title,
                 'type': 'Resource',
-                'category': 'Question Papers',
-                'engagements': '642 Downloads',
-                'success_metric': '4.9 / 5.0 Average Rating',
-                'price_fee': '£29.00',
-                'price': '£29.00',
-                'status': 'Top Seller'
-            },
-            {
-                'sl_no': 3,
-                'item_name': 'Kerala PSC Lab Technician Grade II — Complete Course',
-                'type': 'Course',
-                'category': 'Kerala PSC',
-                'engagements': '285 Enrolled',
-                'success_metric': '92.8% Completion Rate',
-                'price_fee': '£180',
-                'price': '£180',
-                'status': 'Active Batch'
-            },
-            {
-                'sl_no': 4,
-                'item_name': 'Kerala PSC lab technician solved papers (2016-2026)',
-                'type': 'Resource',
-                'category': 'Question Papers',
-                'engagements': '518 Downloads',
-                'success_metric': '4.8 / 5.0 Average Rating',
-                'price_fee': '£19.00',
-                'price': '£19.00',
-                'status': 'Popular'
-            },
-            {
-                'sl_no': 5,
-                'item_name': 'MSc MLT Entrance — Postgraduate Coaching',
-                'type': 'Course',
-                'category': 'MSc MLT Entrance',
-                'engagements': '194 Enrolled',
-                'success_metric': '94.2% Completion Rate',
-                'price_fee': '£240',
-                'price': '£240',
-                'status': 'Trending'
-            },
-            {
-                'sl_no': 6,
-                'item_name': 'Clinical biochemistry high-yield revision pack',
-                'type': 'Resource',
-                'category': 'Notes',
-                'engagements': '412 Downloads',
-                'success_metric': '4.9 / 5.0 Average Rating',
-                'price_fee': '£15.00',
-                'price': '£15.00',
-                'status': 'Verified'
-            }
-        ]
+                'category': resource.category or 'Question Papers',
+                'engagements': f"{engagements_num} Downloads",
+                'success_metric': resource_rating_str,
+                'price_fee': price_str,
+                'price': price_str,
+                'status': item_status,
+            })
+
+        # Interleave top courses and resources for a balanced overview
+        combined = []
+        max_count = max(len(course_items), len(resource_items))
+        for i in range(max_count):
+            if i < len(course_items):
+                combined.append(course_items[i])
+            if i < len(resource_items):
+                combined.append(resource_items[i])
+
+        item_wise_performance = combined[:6]
+        for idx, itm in enumerate(item_wise_performance, start=1):
+            itm['sl_no'] = idx
 
         data = {
             'stats': {

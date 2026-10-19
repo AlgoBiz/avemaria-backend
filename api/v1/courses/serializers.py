@@ -89,9 +89,11 @@ class CourseListSerializer(serializers.ModelSerializer):
             faculty_name = instance.faculty_name or ""
             faculty_qualification = instance.faculty_qualification or instance.faculty_title or ""
 
+        course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
         return OrderedDict([
             ('id', instance.id),
             ('title', instance.title),
+            ('status', course_status),
             ('category', instance.category.title if instance.category else None),
             ('cover_image', cover_image_url),
             ('short_description', instance.summary or ''),
@@ -125,6 +127,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     fee_formatted = serializers.SerializerMethodField()
     schedule_display = serializers.SerializerMethodField()
     faculty_display = serializers.SerializerMethodField()
+
+    status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Course
@@ -176,6 +180,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
             # 7. Metrics, Status & Timestamps
             'slug',
+            'status',
             'modules_count',
             'highlights_count',
             'rating',
@@ -225,6 +230,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             ordered_ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
+        ordered_ret['status'] = instance.status or ('published' if instance.is_published else 'draft')
         return ordered_ret
 
 
@@ -240,12 +246,14 @@ class CourseWriteSerializer(serializers.ModelSerializer):
     meta_keywords = serializers.JSONField(required=False, default=list)
     curriculum = serializers.JSONField(required=False, default=list)
     faqs = serializers.JSONField(required=False, default=list)
+    status = serializers.ChoiceField(choices=['published', 'draft'], default='published', required=False)
 
     class Meta:
         model = Course
         fields = (
             'id',
             'title',
+            'status',
             'category',
             'category_name',
             'short_description',
@@ -300,6 +308,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'updated_at',
         )
         extra_kwargs = {
+            'status': {'default': 'published', 'required': False},
             'slug': {'required': False, 'allow_blank': True, 'read_only': True},
             'summary': {'required': False, 'allow_blank': True},
             'currency': {'required': False, 'allow_blank': True},
@@ -313,19 +322,40 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             'faculty_experience': {'required': False, 'allow_blank': True},
         }
 
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        if hasattr(instance, 'uuid'):
-            ret['id'] = str(instance.uuid)
-        if hasattr(instance, 'slug'):
-            ret['slug'] = instance.slug
-        return ret
-
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
             data = data.dict()
         else:
             data = data.copy()
+
+        # 0. Status field normalization ('published' / 'draft')
+        status_val = data.get('status')
+        if status_val is not None:
+            s_str = str(status_val).strip().lower()
+            if s_str in ['published', 'publish']:
+                data['status'] = 'published'
+                data['is_published'] = True
+            elif s_str in ['draft', 'unpublished']:
+                data['status'] = 'draft'
+                data['is_published'] = False
+            else:
+                raise serializers.ValidationError({
+                    'status': f"Invalid status '{status_val}'. Status must be either 'published' or 'draft'."
+                })
+        elif 'is_published' in data:
+            is_pub = data.get('is_published')
+            if str(is_pub).strip().lower() in ['true', '1', 'yes']:
+                data['status'] = 'published'
+                data['is_published'] = True
+            elif str(is_pub).strip().lower() in ['false', '0', 'no']:
+                data['status'] = 'draft'
+                data['is_published'] = False
+            else:
+                data['status'] = 'published' if bool(is_pub) else 'draft'
+                data['is_published'] = bool(is_pub)
+        elif not getattr(self, 'instance', None):
+            data['status'] = 'published'
+            data['is_published'] = True
 
         # 1. Title alias (e.g. Programme Title)
         if not data.get('title'):
@@ -343,11 +373,20 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             from django.utils.text import slugify
             if isinstance(cat_val, str) and not cat_val.strip().isdigit():
                 cleaned_val = cat_val.strip()
-                found_cat = Category.objects.filter(
-                    is_deleted=False
-                ).filter(
-                    models.Q(title__iexact=cleaned_val) | models.Q(slug__iexact=slugify(cleaned_val))
-                ).first()
+                import uuid
+                u = None
+                try:
+                    u = uuid.UUID(cleaned_val)
+                except (ValueError, TypeError):
+                    pass
+                if u:
+                    found_cat = Category.objects.filter(uuid=u, is_deleted=False).first()
+                else:
+                    found_cat = Category.objects.filter(
+                        is_deleted=False
+                    ).filter(
+                        models.Q(title__iexact=cleaned_val) | models.Q(slug__iexact=slugify(cleaned_val))
+                    ).first()
                 if not found_cat:
                     raise serializers.ValidationError({
                         'category': f"Course category '{cleaned_val}' does not exist. Please add the category first using the category API."
@@ -454,9 +493,19 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 ).first()
 
             if not found_faculty:
-                raise serializers.ValidationError({
-                    'faculty': f"Faculty '{raw_fac_str}' does not exist in the faculty list. Please select an existing faculty from /api/v1/faculty/ or create it first."
-                })
+                if not raw_fac_str.isdigit():
+                    found_faculty = Faculty.objects.create(
+                        name=raw_fac_str,
+                        title=data.get('faculty_title', '') or 'Faculty Member',
+                        qualification=data.get('faculty_qualification', '') or '',
+                        experience=data.get('faculty_experience', '') or '',
+                        bio=data.get('faculty_bio', '') or '',
+                        is_published=True
+                    )
+                else:
+                    raise serializers.ValidationError({
+                        'faculty': f"Faculty '{raw_fac_str}' does not exist in the faculty list. Please select an existing faculty from /api/v1/faculty/ or create it first."
+                    })
 
             data['faculty'] = found_faculty.id
             data['faculty_name'] = found_faculty.name
@@ -555,10 +604,12 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 "faculty_image": fac_image_url,
             })
 
+        course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
         return OrderedDict([
             ('id', str(instance.uuid)),
             ('slug', instance.slug),
             ('title', instance.title),
+            ('status', course_status),
             ('category', instance.category.title if instance.category else None),
             ('short_description', instance.summary or ''),
             ('overview_description', instance.overview_description or ''),
@@ -575,9 +626,20 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             ('weekly_session_commitment', instance.weekly_session_commitment or ''),
             ('schedule_details', instance.schedule_details or ''),
             ('faculty', faculty_list),
+            ('faculty_name', instance.faculty_name or (instance.faculty.name if instance.faculty else '')),
+            ('faculty_qualification', instance.faculty_qualification or (instance.faculty.qualification if instance.faculty else '')),
+            ('faculty_title', instance.faculty_title or (instance.faculty.title if instance.faculty else '')),
+            ('faculty_experience', instance.faculty_experience or (instance.faculty.experience if instance.faculty else '')),
+            ('faculty_bio', instance.faculty_bio or (instance.faculty.bio if instance.faculty else '')),
             ('faqs', instance.faqs or []),
             ('meta_description', instance.meta_description or ''),
             ('meta_keywords', instance.meta_keywords or []),
+            ('modules_count', instance.modules_count),
+            ('highlights_count', instance.highlights_count),
+            ('rating', float(instance.rating) if instance.rating else 4.8),
+            ('reviews_count', instance.reviews_count),
+            ('enrolled_count', instance.enrolled_count),
+            ('is_published', instance.is_published),
             ('is_featured', instance.is_featured),
             ('is_active', instance.is_active),
             ('is_deleted', instance.is_deleted),

@@ -128,12 +128,19 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class CategoryListSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     cover_image = serializers.SerializerMethodField()
     programmes_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Category
         fields = ('id', 'title', 'cover_image', 'description', 'programmes_count')
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_cover_image(self, obj):
