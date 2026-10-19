@@ -6,6 +6,8 @@ from apps.courses.models import CourseEnrollment
 
 
 class StudentSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     avatar_initials = serializers.SerializerMethodField()
     item_type = serializers.SerializerMethodField()
     item_name = serializers.SerializerMethodField()
@@ -32,7 +34,7 @@ class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = '__all__'
-        read_only_fields = ('id', 'registered_date', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'registered_date', 'created_at', 'updated_at')
 
     @extend_schema_field(serializers.CharField())
     def get_avatar_initials(self, obj):
@@ -193,7 +195,7 @@ class StudentSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_invoice_download_url(self, obj):
         request = self.context.get('request')
-        url = f"/api/v1/students/{obj.id}/invoice/"
+        url = f"/api/v1/students/{obj.uuid}/invoice/"
         if request:
             return request.build_absolute_uri(url)
         return url
@@ -201,7 +203,7 @@ class StudentSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_invoice_view_url(self, obj):
         request = self.context.get('request')
-        url = f"/api/v1/students/{obj.id}/invoice-data/"
+        url = f"/api/v1/students/{obj.uuid}/invoice-data/"
         if request:
             return request.build_absolute_uri(url)
         return url
@@ -216,12 +218,21 @@ class StudentSerializer(serializers.ModelSerializer):
         e_count = CourseEnrollment.objects.filter(student=obj, is_deleted=False).count()
         return max(p_count + e_count, 1)
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
+        return ret
+
 
 class StudentListSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     avatar_initials = serializers.SerializerMethodField()
     item_type = serializers.SerializerMethodField()
     item_name = serializers.SerializerMethodField()
     purchase_date = serializers.SerializerMethodField()
+    location = serializers.SerializerMethodField()
     invoice_number = serializers.SerializerMethodField()
     gst_included = serializers.SerializerMethodField()
     base_amount = serializers.SerializerMethodField()
@@ -237,6 +248,7 @@ class StudentListSerializer(serializers.ModelSerializer):
         model = Student
         fields = (
             'id',
+            'slug',
             'avatar_initials',
             'name',
             'email',
@@ -244,6 +256,7 @@ class StudentListSerializer(serializers.ModelSerializer):
             'item_type',
             'item_name',
             'purchase_date',
+            'location',
             'invoice_number',
             'gst_included',
             'base_amount',
@@ -333,6 +346,15 @@ class StudentListSerializer(serializers.ModelSerializer):
         return ""
 
     @extend_schema_field(serializers.CharField())
+    def get_location(self, obj):
+        if obj.location:
+            return obj.location
+        parts = [p.strip() for p in [obj.city, obj.country] if p and p.strip()]
+        if parts:
+            return ", ".join(parts)
+        return ""
+
+    @extend_schema_field(serializers.CharField())
     def get_invoice_number(self, obj):
         order = self._get_primary_order(obj)
         if order and order['type'] == 'RESOURCE' and order['obj'].receipt_number:
@@ -385,7 +407,7 @@ class StudentListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_invoice_download(self, obj):
         request = self.context.get('request')
-        url = f"/api/v1/students/{obj.id}/invoice/"
+        url = f"/api/v1/students/{obj.uuid}/invoice/"
         if request:
             return request.build_absolute_uri(url)
         return url
@@ -393,7 +415,7 @@ class StudentListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_invoice_view_url(self, obj):
         request = self.context.get('request')
-        url = f"/api/v1/students/{obj.id}/invoice-data/"
+        url = f"/api/v1/students/{obj.uuid}/invoice-data/"
         if request:
             return request.build_absolute_uri(url)
         return url
@@ -404,6 +426,12 @@ class StudentListSerializer(serializers.ModelSerializer):
         if obj.avatar:
             return request.build_absolute_uri(obj.avatar.url) if request else obj.avatar.url
         return None
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
+        return ret
 
 
 class StudentContactSerializer(serializers.Serializer):

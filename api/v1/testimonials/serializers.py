@@ -4,6 +4,8 @@ from drf_spectacular.utils import extend_schema_field
 from apps.testimonials.models import Testimonial
 
 class TestimonialSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     course_name = serializers.CharField(source='programme_name', required=False, allow_blank=True)
     review = serializers.CharField(source='quote', required=False)
     image = serializers.SerializerMethodField()
@@ -11,12 +13,12 @@ class TestimonialSerializer(serializers.ModelSerializer):
     class Meta:
         model = Testimonial
         fields = (
-            'id', 'candidate_name', 'initials', 'course_name', 'result_placement',
+            'id', 'slug', 'candidate_name', 'initials', 'course_name', 'result_placement',
             'country', 'review', 'rating', 'image',
             'is_published', 'is_student_submission',
             'created_at', 'updated_at'
         )
-        read_only_fields = ('initials', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'initials', 'created_at', 'updated_at')
         extra_kwargs = {
             'candidate_name': {'required': False},
             'result_placement': {'required': False, 'allow_blank': True},
@@ -36,6 +38,8 @@ class TestimonialSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ret['id'] = str(instance.uuid)
+        ret['slug'] = instance.slug
         ordered_ret = OrderedDict()
         for field in self.Meta.fields:
             if field in ret:

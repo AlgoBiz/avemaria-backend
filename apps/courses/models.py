@@ -98,7 +98,13 @@ class Course(BaseModel):
     )
     schedule_details = models.TextField(blank=True, null=True, help_text="Schedule summary narrative")
 
+    STATUS_CHOICES = (
+        ('published', 'Published'),
+        ('draft', 'Draft'),
+    )
+
     # Metadata & Metrics
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='published', help_text="Course publication status: published or draft")
     modules_count = models.PositiveIntegerField(default=6)
     highlights_count = models.PositiveIntegerField(default=4)
     rating = models.DecimalField(max_digits=3, decimal_places=1, default=4.8)
@@ -113,6 +119,17 @@ class Course(BaseModel):
         ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
+        if self.status:
+            self.status = str(self.status).strip().lower()
+            if self.status == 'draft':
+                self.is_published = False
+            elif self.status == 'published':
+                self.is_published = True
+            else:
+                self.status = 'published' if self.is_published else 'draft'
+        else:
+            self.status = 'published' if self.is_published else 'draft'
+
         if not self.slug:
             base_slug = slugify(self.title) or 'course'
             unique_slug = base_slug

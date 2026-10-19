@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, filters, status
@@ -56,8 +57,18 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup = self.kwargs.get('slug') or self.kwargs.get('pk')
         queryset = self.filter_queryset(self.get_queryset())
-        if lookup is not None and str(lookup).isdigit():
-            return get_object_or_404(queryset, id=int(lookup))
+        if lookup is not None:
+            l_str = str(lookup).strip()
+            if l_str.isdigit():
+                return get_object_or_404(queryset, id=int(l_str))
+            import uuid
+            try:
+                u = uuid.UUID(l_str)
+                obj = queryset.filter(uuid=u).first()
+                if obj:
+                    return obj
+            except (ValueError, TypeError):
+                pass
         return get_object_or_404(queryset, slug=lookup)
 
     def get_permissions(self):
@@ -213,9 +224,17 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         if cat_lookup == 'create' and request.method == 'POST':
             return self.create_resource_category(request)
 
-        if cat_lookup and cat_lookup.isdigit():
-            category = get_object_or_404(ResourceCategory, id=int(cat_lookup), is_deleted=False)
-        else:
+        category = None
+        try:
+            val_uuid = uuid.UUID(str(cat_lookup))
+            category = ResourceCategory.objects.filter(uuid=val_uuid, is_deleted=False).first()
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+        if category is None and cat_lookup and str(cat_lookup).isdigit():
+            category = ResourceCategory.objects.filter(id=int(cat_lookup), is_deleted=False).first()
+
+        if category is None:
             category = get_object_or_404(ResourceCategory, slug=cat_lookup, is_deleted=False)
 
         if request.method == 'GET':

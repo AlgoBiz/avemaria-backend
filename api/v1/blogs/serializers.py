@@ -6,15 +6,25 @@ from apps.blogs.models import Blog, BlogCategory
 
 
 class BlogCategorySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
     category_name = serializers.CharField(source='name', required=False)
     articles_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = BlogCategory
         fields = (
-            'id', 'name', 'category_name', 'description',
+            'id', 'name', 'slug', 'category_name', 'description',
             'articles_count', 'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
         extra_kwargs = {
             'name': {'required': False},
             'is_active': {'default': True, 'required': False},
@@ -43,6 +53,7 @@ class BlogCategorySerializer(serializers.ModelSerializer):
 
 
 class BlogListSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     heading = serializers.CharField(source='title', read_only=True)
     publish_date = serializers.SerializerMethodField()
     cover_image = serializers.SerializerMethodField()
@@ -77,8 +88,17 @@ class BlogListSerializer(serializers.ModelSerializer):
     def get_publish_date(self, obj):
         return obj.publish_date_formatted or (str(obj.publish_date) if obj.publish_date else "")
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
+
 
 class BlogDetailSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     heading = serializers.CharField(source='title', required=False)
     category = serializers.CharField(required=True, allow_blank=False)
     blocks_count = serializers.IntegerField(source='content_blocks_count', read_only=True)
@@ -115,6 +135,14 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             return obj.cover_image.url
         return None
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        return ret
+
     @extend_schema_field(serializers.CharField())
     def get_publish_date(self, obj):
         return obj.publish_date_formatted or (str(obj.publish_date) if obj.publish_date else "")
@@ -128,15 +156,17 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             mutable_data = dict(data)
 
         # Title / Heading alias
-        if not mutable_data.get('title'):
-            for alias in ['heading', 'article_title', 'name', 'title']:
+        if not mutable_data.get('heading'):
+            for alias in ['article_title', 'name', 'title']:
                 if mutable_data.get(alias):
-                    mutable_data['title'] = mutable_data[alias]
+                    mutable_data['heading'] = mutable_data[alias]
                     break
+        elif not mutable_data.get('title'):
+            mutable_data['title'] = mutable_data.get('heading')
 
         # Sub Heading / Subheading / Excerpt / Overview alias
         if not mutable_data.get('sub_heading'):
-            for alias in ['subheading', 'sub_heading', 'excerpt', 'overview', 'summary', 'sub_title']:
+            for alias in ['subheading', 'excerpt', 'overview', 'summary', 'sub_title']:
                 if mutable_data.get(alias):
                     mutable_data['sub_heading'] = mutable_data[alias]
                     break

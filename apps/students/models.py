@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.conf import settings
 from core.models import BaseModel
@@ -55,6 +56,7 @@ class Student(BaseModel):
     location = models.CharField(max_length=150, blank=True, default='', help_text="e.g. London, United Kingdom")
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='active')
     registered_date = models.DateField(auto_now_add=True)
+    slug = models.SlugField(max_length=180, blank=True, default='', db_index=True)
 
     class Meta:
         verbose_name = 'Student Learner'
@@ -65,11 +67,28 @@ class Student(BaseModel):
     def institution_and_year(self):
         return f"{self.institution} · {self.graduating_year}"
 
+    def save(self, *args, **kwargs):
+        if not self.location:
+            parts = [p.strip() for p in [self.city, self.country] if p and p.strip()]
+            if parts:
+                self.location = ", ".join(parts)
+        if not self.slug:
+            from django.utils.text import slugify
+            base_slug = slugify(self.name) or 'student'
+            unique_slug = base_slug
+            counter = 1
+            while Student.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.name} ({self.qualification})"
 
 
 class StudentDocument(models.Model):
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
     DOCUMENT_TYPES = (
         ('passport', 'Passport'),
         ('aadhar', 'Aadhar Card'),

@@ -29,8 +29,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup = self.kwargs.get('slug') or self.kwargs.get('pk')
         queryset = self.filter_queryset(self.get_queryset())
-        if lookup is not None and str(lookup).isdigit():
-            return get_object_or_404(queryset, id=int(lookup))
+        if lookup is not None:
+            l_str = str(lookup).strip()
+            if l_str.isdigit():
+                return get_object_or_404(queryset, id=int(l_str))
+            import uuid
+            try:
+                u = uuid.UUID(l_str)
+                obj = queryset.filter(uuid=u).first()
+                if obj:
+                    return obj
+            except (ValueError, TypeError):
+                pass
         return get_object_or_404(queryset, slug=lookup)
 
     def get_permissions(self):

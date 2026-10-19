@@ -11,7 +11,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.select_related('category').all()
     lookup_field = 'slug'
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category__slug', 'category__title', 'level', 'learning_mode', 'is_published', 'is_featured']
+    filterset_fields = ['category__slug', 'category__title', 'level', 'learning_mode', 'is_published', 'status', 'is_featured']
     search_fields = ['title', 'summary', 'overview_description', 'faculty_name', 'faculty_title', 'faculty_qualification', 'meta_description']
     ordering_fields = ['fee', 'rating', 'created_at', 'title']
     ordering = ['-created_at', '-id']
@@ -24,7 +24,16 @@ class CourseViewSet(viewsets.ModelViewSet):
             if category_param.isdigit():
                 qs = qs.filter(category_id=int(category_param))
             else:
-                qs = qs.filter(models.Q(category__slug__iexact=category_param) | models.Q(category__title__iexact=category_param))
+                import uuid
+                try:
+                    u = uuid.UUID(category_param)
+                    qs = qs.filter(category__uuid=u)
+                except (ValueError, TypeError):
+                    qs = qs.filter(models.Q(category__slug__iexact=category_param) | models.Q(category__title__iexact=category_param))
+
+        status_param = self.request.query_params.get('status')
+        if status_param and status_param.strip().lower() in ['published', 'draft']:
+            qs = qs.filter(status=status_param.strip().lower())
 
         if self.request.user and self.request.user.is_authenticated:
             return qs
@@ -47,8 +56,18 @@ class CourseViewSet(viewsets.ModelViewSet):
         from django.shortcuts import get_object_or_404
         lookup = self.kwargs.get('slug') or self.kwargs.get('pk')
         queryset = self.filter_queryset(self.get_queryset())
-        if lookup is not None and str(lookup).isdigit():
-            return get_object_or_404(queryset, id=int(lookup))
+        if lookup is not None:
+            l_str = str(lookup).strip()
+            if l_str.isdigit():
+                return get_object_or_404(queryset, id=int(l_str))
+            import uuid
+            try:
+                u = uuid.UUID(l_str)
+                obj = queryset.filter(uuid=u).first()
+                if obj:
+                    return obj
+            except (ValueError, TypeError):
+                pass
         return get_object_or_404(queryset, slug=lookup)
 
     def perform_destroy(self, instance):

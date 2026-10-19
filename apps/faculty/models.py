@@ -15,11 +15,24 @@ class Faculty(BaseModel):
     is_published = models.BooleanField(default=True, help_text="Whether this faculty profile is published / active")
     is_featured = models.BooleanField(default=False, help_text="Whether this faculty is featured on the home/landing page")
     display_order = models.PositiveIntegerField(default=0, help_text="Order in faculty listings (ascending)")
+    slug = models.SlugField(max_length=180, blank=True, default='', db_index=True)
 
     class Meta:
         verbose_name = 'Faculty'
         verbose_name_plural = 'Faculties'
         ordering = ['-created_at', '-id']
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base_slug = slugify(self.name) or 'faculty'
+            unique_slug = base_slug
+            counter = 1
+            while Faculty.objects.filter(slug=unique_slug).exclude(pk=self.pk).exists():
+                unique_slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = unique_slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.faculty_display

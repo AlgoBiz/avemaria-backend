@@ -1,3 +1,4 @@
+import uuid
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -40,6 +41,14 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
     def get_object(self):
         lookup = self.kwargs.get('pk')
         queryset = self.filter_queryset(self.get_queryset())
+        try:
+            val_uuid = uuid.UUID(str(lookup))
+            obj = queryset.filter(uuid=val_uuid).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        except (ValueError, AttributeError):
+            pass
         if str(lookup).isdigit():
             return get_object_or_404(queryset, pk=lookup)
         return get_object_or_404(queryset, slug__iexact=lookup)
@@ -73,6 +82,21 @@ class GalleryItemViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve', 'stats', 'categories']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        lookup = self.kwargs.get('pk')
+        queryset = self.filter_queryset(self.get_queryset())
+        try:
+            val_uuid = uuid.UUID(str(lookup))
+            obj = queryset.filter(uuid=val_uuid).first()
+            if obj:
+                self.check_object_permissions(self.request, obj)
+                return obj
+        except (ValueError, AttributeError):
+            pass
+        if str(lookup).isdigit():
+            return get_object_or_404(queryset, pk=lookup)
+        return get_object_or_404(queryset, slug__iexact=lookup)
 
     def get_queryset(self):
         qs = GalleryItem.objects.filter(is_deleted=False)
