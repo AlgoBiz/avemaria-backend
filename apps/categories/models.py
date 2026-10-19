@@ -15,6 +15,8 @@ class Category(BaseModel):
         ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
+        if self.title:
+            self.title = ' '.join(str(self.title).strip().split())
         if not self.slug:
             base_slug = slugify(self.title) or 'category'
             unique_slug = base_slug

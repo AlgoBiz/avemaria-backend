@@ -40,8 +40,6 @@ class StudentViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
-        if self.action == 'list':
-            return StudentListSerializer
         return StudentSerializer
 
     def get_permissions(self):

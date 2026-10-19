@@ -1,3 +1,5 @@
+from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.gallery.models import GalleryItem, GalleryCategory
@@ -23,7 +25,7 @@ class GalleryCategoryCreateSerializer(serializers.ModelSerializer):
 
         # Support "category" or "category_name" or "title" alias
         if not mutable_data.get('name'):
-            for alias in ['category', 'category_name', 'title']:
+            for alias in ['category', 'category_name', 'title', 'category_title']:
                 if mutable_data.get(alias):
                     mutable_data['name'] = mutable_data[alias]
                     break
@@ -35,35 +37,47 @@ class GalleryCategoryCreateSerializer(serializers.ModelSerializer):
         if not name or not str(name).strip():
             raise serializers.ValidationError({"name": "Category name is required."})
 
-        cleaned = str(name).strip()
+        cleaned = ' '.join(str(name).strip().split())
         attrs['name'] = cleaned
 
-        # Check for existing category with same name
-        existing = GalleryCategory.objects.filter(name__iexact=cleaned).first()
-        if existing and not self.instance:
-            if not existing.is_deleted:
+        cat_slug = slugify(cleaned)
+        existing_qs = GalleryCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
                 raise serializers.ValidationError({"name": f"Gallery category '{cleaned}' already exists."})
         return attrs
 
     def create(self, validated_data):
         name = validated_data.get('name')
-        existing = GalleryCategory.objects.filter(name__iexact=name).first()
-        if existing and existing.is_deleted:
-            existing.is_deleted = False
-            for k, v in validated_data.items():
-                setattr(existing, k, v)
-            existing.save()
-            return existing
+        cat_slug = slugify(name)
+        existing = GalleryCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Gallery category '{name}' already exists."})
         return super().create(validated_data)
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         ret['id'] = str(instance.uuid)
         ret['slug'] = instance.slug
+        ret['name'] = instance.name
         return ret
-
-
-GalleryCategoryListSerializer = GalleryCategoryCreateSerializer
 
 
 class GalleryCategorySerializer(serializers.ModelSerializer):
@@ -100,7 +114,7 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
 
         # Support "category" or "category_name" or "title" alias
         if not mutable_data.get('name'):
-            for alias in ['category', 'category_name', 'title']:
+            for alias in ['category', 'category_name', 'title', 'category_title']:
                 if mutable_data.get(alias):
                     mutable_data['name'] = mutable_data[alias]
                     break
@@ -125,25 +139,39 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
         if not name or not str(name).strip():
             raise serializers.ValidationError({"name": "Category name is required."})
 
-        cleaned = str(name).strip()
+        cleaned = ' '.join(str(name).strip().split())
         attrs['name'] = cleaned
 
-        # Check for existing category with same name
-        existing = GalleryCategory.objects.filter(name__iexact=cleaned).first()
-        if existing and not self.instance:
-            if not existing.is_deleted:
+        cat_slug = slugify(cleaned)
+        existing_qs = GalleryCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
                 raise serializers.ValidationError({"name": f"Gallery category '{cleaned}' already exists."})
         return attrs
 
     def create(self, validated_data):
         name = validated_data.get('name')
-        existing = GalleryCategory.objects.filter(name__iexact=name).first()
-        if existing and existing.is_deleted:
-            existing.is_deleted = False
-            for k, v in validated_data.items():
-                setattr(existing, k, v)
-            existing.save()
-            return existing
+        cat_slug = slugify(name)
+        existing = GalleryCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Gallery category '{name}' already exists."})
         return super().create(validated_data)
 
     def to_representation(self, instance):
@@ -178,7 +206,8 @@ class GalleryCategorySerializer(serializers.ModelSerializer):
         ret['alt_text'] = alt_text
         return ret
 
-        return ret
+
+GalleryCategoryListSerializer = GalleryCategorySerializer
 
 
 class GalleryItemSerializer(serializers.ModelSerializer):

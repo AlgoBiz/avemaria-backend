@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
@@ -1230,6 +1231,35 @@ class StudentDocumentUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = StudentDocumentUploadSerializer
 
+    def get_serializer_class(self):
+        if self.request and self.request.method == 'GET':
+            return StudentDocumentSerializer
+        return StudentDocumentUploadSerializer
+
+    @extend_schema(
+        tags=['Student Documents'],
+        summary="List Uploaded Student Documents",
+        description="Retrieves a list of all documents and verification files uploaded by the authenticated student.",
+        responses={
+            200: StudentDocumentSerializer(many=True),
+            401: OpenApiResponse(description="Authentication credentials were not provided or are invalid.")
+        }
+    )
+    def get(self, request):
+        student = getattr(request.user, 'student_profile', None)
+        if not student:
+            student = Student.objects.filter(email=request.user.email).first()
+        if not student:
+            student, _ = Student.objects.get_or_create(
+                email=request.user.email,
+                defaults={'user': request.user, 'name': request.user.display_name, 'status': 'active'}
+            )
+        documents = student.documents.all().order_by('-uploaded_at')
+        return Response(
+            StudentDocumentSerializer(documents, many=True, context={'request': request}).data,
+            status=status.HTTP_200_OK
+        )
+
     @extend_schema(
         tags=['Student Documents'],
         summary="Upload Student Document",
@@ -1295,7 +1325,15 @@ class StudentDocumentDeleteView(APIView):
         if not student:
             return Response({"detail": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        doc = StudentDocument.objects.filter(student=student, pk=pk).first()
+        pk_str = str(pk).strip()
+        doc = None
+        try:
+            val_uuid = uuid.UUID(pk_str)
+            doc = StudentDocument.objects.filter(student=student, uuid=val_uuid).first()
+        except (ValueError, AttributeError):
+            pass
+        if not doc and pk_str.isdigit():
+            doc = StudentDocument.objects.filter(student=student, id=int(pk_str)).first()
         if not doc:
             return Response({"detail": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
 

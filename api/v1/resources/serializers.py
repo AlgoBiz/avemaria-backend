@@ -1,4 +1,6 @@
 from collections import OrderedDict
+from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
@@ -6,6 +8,7 @@ from apps.resources.models import PaidResource, ResourcePDF, ResourceCategory
 class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     slug = serializers.CharField(read_only=True)
+    name = serializers.CharField(required=False)
 
     class Meta:
         model = ResourceCategory
@@ -25,16 +28,57 @@ class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
         else:
             data = data.copy()
         if not data.get('name'):
-            for alias in ['title', 'category_name', 'category']:
+            for alias in ['title', 'category_name', 'category', 'category_title']:
                 if data.get(alias):
                     data['name'] = data[alias]
                     break
         return super().to_internal_value(data)
 
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = ' '.join(str(name).strip().split())
+        attrs['name'] = cleaned
+
+        cat_slug = slugify(cleaned)
+        existing_qs = ResourceCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
+                raise serializers.ValidationError({"name": f"Resource category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        cat_slug = slugify(name)
+        existing = ResourceCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Resource category '{name}' already exists."})
+        return super().create(validated_data)
+
 
 class ResourceCategorySerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     slug = serializers.CharField(read_only=True)
+    name = serializers.CharField(required=False)
     resources_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -51,6 +95,9 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
             ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ret['slug'] = instance.slug
+        if hasattr(instance, 'name'):
+            ret['title'] = instance.name
+            ret['category'] = instance.name
         return ret
 
     def to_internal_value(self, data):
@@ -59,11 +106,51 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
         else:
             data = data.copy()
         if not data.get('name'):
-            for alias in ['title', 'category_name', 'category']:
+            for alias in ['title', 'category_name', 'category', 'category_title']:
                 if data.get(alias):
                     data['name'] = data[alias]
                     break
         return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = ' '.join(str(name).strip().split())
+        attrs['name'] = cleaned
+
+        cat_slug = slugify(cleaned)
+        existing_qs = ResourceCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
+                raise serializers.ValidationError({"name": f"Resource category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        cat_slug = slugify(name)
+        existing = ResourceCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Resource category '{name}' already exists."})
+        return super().create(validated_data)
 
 
 class ResourcePDFSerializer(serializers.ModelSerializer):
@@ -131,6 +218,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             'slug',
             'title',
             'category',
+            'course_name',
             'price',
             'description',
             'highlights',
@@ -142,6 +230,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             'updated_at'
         )
         extra_kwargs = {
+            'course_name': {'required': False, 'allow_blank': True},
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
             'description': {'required': False, 'allow_blank': True}
@@ -160,6 +249,11 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             ordered_ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
+        ordered_ret['course_name'] = instance.course_name
+        curr = getattr(instance, 'currency', None) or '£'
+        ordered_ret['price_formatted'] = f"{curr}{instance.price:.2f}" if instance.price is not None else f"{curr}0.00"
+        pdf_cnt = instance.pdf_count
+        ordered_ret['pdf_count_display'] = f"{pdf_cnt} {'PDF attached' if pdf_cnt == 1 else 'PDFs attached'}"
         return ordered_ret
 
     def to_internal_value(self, data):

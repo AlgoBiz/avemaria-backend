@@ -1,35 +1,36 @@
 import json
 import datetime
+from collections import OrderedDict
+from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.blogs.models import Blog, BlogCategory
 
 
-class BlogCategorySerializer(serializers.ModelSerializer):
+class BlogCategoryCreateSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     slug = serializers.CharField(read_only=True)
-    category_name = serializers.CharField(source='name', required=False)
-    articles_count = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(required=True)
 
     class Meta:
         model = BlogCategory
         fields = (
-            'id', 'name', 'slug', 'category_name', 'description',
-            'articles_count', 'is_active', 'is_deleted', 'created_at', 'updated_at'
+            'id', 'name', 'slug', 'is_active', 'is_deleted',
+            'created_at', 'updated_at'
         )
+        read_only_fields = ('id', 'slug', 'is_active', 'is_deleted', 'created_at', 'updated_at')
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        ordered_ret = OrderedDict()
+        for field in ['id', 'name', 'slug', 'is_active', 'is_deleted', 'created_at', 'updated_at']:
+            ordered_ret[field] = ret.get(field)
         if hasattr(instance, 'uuid'):
-            ret['id'] = str(instance.uuid)
+            ordered_ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
-            ret['slug'] = instance.slug
-        return ret
-        extra_kwargs = {
-            'name': {'required': False},
-            'is_active': {'default': True, 'required': False},
-            'is_deleted': {'default': False, 'required': False}
-        }
+            ordered_ret['slug'] = instance.slug
+        return ordered_ret
 
     def to_internal_value(self, data):
         if hasattr(data, 'dict'):
@@ -40,16 +41,137 @@ class BlogCategorySerializer(serializers.ModelSerializer):
             mutable_data = dict(data)
 
         if not mutable_data.get('name'):
-            for alias in ['category_name', 'title', 'category']:
+            for alias in ['category_name', 'title', 'category', 'category_title']:
                 if mutable_data.get(alias):
                     mutable_data['name'] = mutable_data[alias]
                     break
         return super().to_internal_value(mutable_data)
 
-    def validate_name(self, value):
-        if not value or not str(value).strip():
-            raise serializers.ValidationError("Category name is required.")
-        return value.strip()
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = ' '.join(str(name).strip().split())
+        attrs['name'] = cleaned
+
+        cat_slug = slugify(cleaned)
+        existing_qs = BlogCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
+                raise serializers.ValidationError({"name": f"Blog category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        cat_slug = slugify(name)
+        existing = BlogCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Blog category '{name}' already exists."})
+        return super().create(validated_data)
+
+
+class BlogCategorySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    slug = serializers.CharField(read_only=True)
+    name = serializers.CharField(required=False)
+    category_name = serializers.CharField(source='name', required=False)
+    articles_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = BlogCategory
+        fields = (
+            'id', 'name', 'slug', 'category_name', 'description',
+            'articles_count', 'is_active', 'is_deleted', 'created_at', 'updated_at'
+        )
+        extra_kwargs = {
+            'name': {'required': False},
+            'is_active': {'default': True, 'required': False},
+            'is_deleted': {'default': False, 'required': False}
+        }
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if hasattr(instance, 'slug'):
+            ret['slug'] = instance.slug
+        if hasattr(instance, 'name'):
+            ret['title'] = instance.name
+            ret['category'] = instance.name
+        return ret
+
+    def to_internal_value(self, data):
+        if hasattr(data, 'dict'):
+            mutable_data = data.dict()
+        elif hasattr(data, 'copy'):
+            mutable_data = data.copy()
+        else:
+            mutable_data = dict(data)
+
+        if not mutable_data.get('name'):
+            for alias in ['category_name', 'title', 'category', 'category_title']:
+                if mutable_data.get(alias):
+                    mutable_data['name'] = mutable_data[alias]
+                    break
+        return super().to_internal_value(mutable_data)
+
+    def validate(self, attrs):
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({"name": "Category name is required."})
+
+        cleaned = ' '.join(str(name).strip().split())
+        attrs['name'] = cleaned
+
+        cat_slug = slugify(cleaned)
+        existing_qs = BlogCategory.objects.filter(
+            models.Q(name__iexact=cleaned) | models.Q(slug=cat_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        existing = existing_qs.first()
+        if existing:
+            if not self.instance and existing.is_deleted:
+                # Soft-deleted record will be restored in create()
+                pass
+            else:
+                raise serializers.ValidationError({"name": f"Blog category '{cleaned}' already exists."})
+        return attrs
+
+    def create(self, validated_data):
+        name = validated_data.get('name')
+        cat_slug = slugify(name)
+        existing = BlogCategory.objects.filter(
+            models.Q(name__iexact=name) | models.Q(slug=cat_slug)
+        ).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                for k, v in validated_data.items():
+                    setattr(existing, k, v)
+                existing.save()
+                return existing
+            raise serializers.ValidationError({"name": f"Blog category '{name}' already exists."})
+        return super().create(validated_data)
 
 
 class BlogListSerializer(serializers.ModelSerializer):
@@ -141,6 +263,9 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ret['slug'] = instance.slug
+        ret['title'] = instance.title
+        ret['content_blocks_count'] = instance.content_blocks_count
+        ret['publish_date_formatted'] = instance.publish_date_formatted
         return ret
 
     @extend_schema_field(serializers.CharField())

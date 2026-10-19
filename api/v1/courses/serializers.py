@@ -520,9 +520,10 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             if not data.get('faculty_image') and found_faculty.image:
                 data['faculty_image'] = found_faculty.image
         elif not getattr(self, 'partial', False):
-            raise serializers.ValidationError({
-                'faculty': "Faculty is required. Please select an existing faculty from the faculty list (/api/v1/faculty/)."
-            })
+            default_faculty = Faculty.objects.filter(is_published=True, is_deleted=False).first()
+            if default_faculty:
+                data['faculty'] = default_faculty.id
+                data['faculty_name'] = default_faculty.name
 
         # 12. Schedule & Commitment aliases
         if not data.get('weekly_session_commitment'):

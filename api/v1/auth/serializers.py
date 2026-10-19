@@ -135,6 +135,7 @@ class StudentLoginSerializer(serializers.Serializer):
 
 
 class StudentDocumentSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
     file_url = serializers.SerializerMethodField()
 
