@@ -122,6 +122,14 @@ def organize_user_admin_tags(result, generator, request, public):
                 else:
                     new_tags.append('ADMIN SIDE - Testimonials')
 
+            # 12. Webinars & Workshops
+            elif path.startswith('/api/v1/webinar') or path.startswith('/api/v1/webinars') or path.startswith('/api/v1/workshops'):
+                if method.lower() == 'get' and not path.endswith('/stats/'):
+                    new_tags.append('USER SIDE - Webinars & Workshops')
+                    new_tags.append('ADMIN SIDE - Webinars & Workshops')
+                else:
+                    new_tags.append('ADMIN SIDE - Webinars & Workshops')
+
             # Fallback
             else:
                 tag_str = " ".join(current_tags).lower()
@@ -148,6 +156,7 @@ def organize_user_admin_tags(result, generator, request, public):
         ('USER SIDE - Faculty', 'Public faculty directory, qualifications, bio and credentials'),
         ('USER SIDE - Testimonials', 'Public student reviews, feedback and success testimonials'),
         ('USER SIDE - Gallery', 'Public photo gallery albums, categories and event pictures'),
+        ('USER SIDE - Webinars & Workshops', 'Public live webinars, upcoming workshops, schedule and registration'),
         ('USER SIDE - Enquiries & Contact', 'Public enquiry forms, contact submissions and lead generation'),
         ('USER SIDE - Portal Settings', 'Public portal branding, contact details, social links and metadata'),
     ]
@@ -161,6 +170,7 @@ def organize_user_admin_tags(result, generator, request, public):
         ('ADMIN SIDE - Resources', 'Study materials management, PDF uploads, pricing and categories'),
         ('ADMIN SIDE - Blogs', 'Blog post authoring, publishing workflow, stats and category management'),
         ('ADMIN SIDE - Faculty', 'Faculty roster management, achievements, bios and assignments'),
+        ('ADMIN SIDE - Webinars & Workshops', 'Webinar and workshop scheduling, speaker assignments, registration links and publishing'),
         ('ADMIN SIDE - Testimonials', 'Student testimonial moderation, publishing toggles and analytics'),
         ('ADMIN SIDE - Gallery', 'Gallery media uploads, category organization and media storage'),
         ('ADMIN SIDE - Enquiries & Leads', 'Inbound leads, admissions CRM, status tracking, email replies & CSV export'),

@@ -123,3 +123,7 @@ class StudentDocument(models.Model):
 
     def __str__(self):
         return f"{self.get_document_type_display()} - {self.student.name} ({self.file_name})"
+
+    @property
+    def uuid_str(self):
+        return str(self.uuid)
