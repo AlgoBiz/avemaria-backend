@@ -174,7 +174,12 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         existing = ResourceCategory.objects.filter(is_deleted=False)
         if not existing.exists():
             for name in ['Question Papers', 'Notes', 'Video Pack', 'Exam Blueprint', 'Mock Test Set']:
-                ResourceCategory.objects.get_or_create(name=name)
+                cat_obj = ResourceCategory.objects.filter(name__iexact=name).first()
+                if not cat_obj:
+                    ResourceCategory.objects.create(name=name)
+                elif cat_obj.is_deleted:
+                    cat_obj.is_deleted = False
+                    cat_obj.save(update_fields=['is_deleted'])
 
         categories = ResourceCategory.objects.filter(is_deleted=False)
         return Response(ResourceCategorySerializer(categories, many=True).data, status=status.HTTP_200_OK)
@@ -241,9 +246,12 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             return Response(ResourceCategorySerializer(category).data)
 
         if request.method in ['PATCH', 'PUT']:
+            old_name = category.name
             serializer = ResourceCategorySerializer(category, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             category = serializer.save()
+            if old_name != category.name:
+                PaidResource.objects.filter(category__iexact=old_name).update(category=category.name)
             return Response(ResourceCategorySerializer(category).data)
 
         if request.method == 'DELETE':

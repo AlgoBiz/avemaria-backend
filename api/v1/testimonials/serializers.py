@@ -44,9 +44,7 @@ class TestimonialSerializer(serializers.ModelSerializer):
         for field in self.Meta.fields:
             if field in ret:
                 ordered_ret[field] = ret[field]
-        for k, v in ret.items():
-            if k not in ordered_ret:
-                ordered_ret[k] = v
+        ordered_ret['programme_name'] = instance.programme_name
         return ordered_ret
 
     def to_internal_value(self, data):

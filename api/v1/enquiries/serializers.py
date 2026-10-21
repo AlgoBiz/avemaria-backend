@@ -189,11 +189,20 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
         if not ret.get('message'):
             ret['message'] = instance.original_message_body or instance.message
 
+        ret['candidate_name'] = instance.candidate_name
+        ret['topic'] = instance.topic
+        ret['topic_course'] = instance.topic
+
+        status_map = {'new': 'New Lead', 'contacted': 'Contacted', 'resolved': 'Enrolled'}
+        ret['status_display'] = status_map.get(instance.status, str(instance.status).title())
+        msg = instance.message or instance.original_message_body or ''
+        ret['message_snippet'] = msg[:120]
+
         # Pop any unwanted legacy keys
         for field in [
-            'candidate_name', 'topic', 'programme_interest', 'topic_course',
-            'inquiry_subject', 'original_message', 'message_snippet',
-            'status_display', 'received_date_formatted', 'logged_date_display',
+            'programme_interest',
+            'inquiry_subject', 'original_message',
+            'received_date_formatted', 'logged_date_display',
             'received_at'
         ]:
             ret.pop(field, None)

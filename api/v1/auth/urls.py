@@ -71,7 +71,7 @@ urlpatterns = [
 
     # Student Document Upload & Management Endpoints
     path('student/documents/', StudentDocumentUploadView.as_view(), name='student_document_upload'),
-    path('student/documents/<int:pk>/', StudentDocumentDeleteView.as_view(), name='student_document_delete'),
+    path('student/documents/<str:pk>/', StudentDocumentDeleteView.as_view(), name='student_document_delete'),
 
     # Student Opted Courses Endpoints
     path('student/courses/', StudentCoursesView.as_view(), name='student_courses'),

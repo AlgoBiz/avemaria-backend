@@ -53,6 +53,15 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
             return get_object_or_404(queryset, pk=lookup)
         return get_object_or_404(queryset, slug__iexact=lookup)
 
+    def perform_update(self, serializer):
+        old_name = serializer.instance.name
+        instance = serializer.save()
+        if old_name != instance.name:
+            GalleryItem.objects.filter(models.Q(category__iexact=old_name) | models.Q(category_slug__iexact=serializer.instance.slug)).update(
+                category=instance.name,
+                category_slug=instance.slug
+            )
+
     def perform_destroy(self, instance):
         instance.is_deleted = True
         instance.save(update_fields=['is_deleted'])

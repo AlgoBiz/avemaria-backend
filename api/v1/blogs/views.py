@@ -12,6 +12,7 @@ from .serializers import (
     BlogListSerializer,
     BlogDetailSerializer,
     BlogCategorySerializer,
+    BlogCategoryCreateSerializer,
     BlogStatsSerializer,
     BlogCategoriesResponseSerializer,
     BlogTogglePublishedResponseSerializer,
@@ -22,6 +23,11 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
     queryset = BlogCategory.objects.filter(is_deleted=False).order_by('id')
     serializer_class = BlogCategorySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'create_category']:
+            return BlogCategoryCreateSerializer
+        return BlogCategorySerializer
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -53,7 +59,12 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
                 'Licensing Updates', 'Study Advice'
             ]
             for name in default_categories:
-                BlogCategory.objects.get_or_create(name=name)
+                cat_obj = BlogCategory.objects.filter(name__iexact=name).first()
+                if not cat_obj:
+                    BlogCategory.objects.create(name=name)
+                elif cat_obj.is_deleted:
+                    cat_obj.is_deleted = False
+                    cat_obj.save(update_fields=['is_deleted'])
 
         queryset = self.filter_queryset(self.get_queryset())
         categories_names = [c.name for c in queryset]
@@ -70,6 +81,12 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
             'results': serializer.data
         })
 
+    def perform_update(self, serializer):
+        old_name = serializer.instance.name
+        instance = serializer.save()
+        if old_name != instance.name:
+            Blog.objects.filter(category__iexact=old_name).update(category=instance.name)
+
     def perform_destroy(self, instance):
         instance.is_deleted = True
         instance.save(update_fields=['is_deleted'])
@@ -77,8 +94,8 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Create blog category",
         description="Create blog category endpoint at /api/v1/blogs/categories/create/",
-        request=BlogCategorySerializer,
-        responses={201: BlogCategorySerializer}
+        request=BlogCategoryCreateSerializer,
+        responses={201: BlogCategoryCreateSerializer}
     )
     @action(detail=False, methods=['post'], url_path='create')
     def create_category(self, request, *args, **kwargs):
@@ -208,7 +225,12 @@ class BlogViewSet(viewsets.ModelViewSet):
                 'Licensing Updates', 'Study Advice'
             ]
             for name in default_categories:
-                BlogCategory.objects.get_or_create(name=name)
+                cat_obj = BlogCategory.objects.filter(name__iexact=name).first()
+                if not cat_obj:
+                    BlogCategory.objects.create(name=name)
+                elif cat_obj.is_deleted:
+                    cat_obj.is_deleted = False
+                    cat_obj.save(update_fields=['is_deleted'])
 
         cat_objs = BlogCategory.objects.filter(is_deleted=False).order_by('id')
         all_count = Blog.objects.filter(is_deleted=False).count()
