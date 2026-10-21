@@ -16,6 +16,8 @@ class GalleryCategory(BaseModel):
         ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
+        if self.name:
+            self.name = ' '.join(str(self.name).strip().split())
         if not self.slug:
             base_slug = slugify(self.name) or 'gallery-category'
             unique_slug = base_slug

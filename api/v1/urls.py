@@ -15,4 +15,7 @@ urlpatterns = [
     path('blogs/', include('api.v1.blogs.urls')),
     path('students/', include('api.v1.students.urls')),
     path('settings/', include('api.v1.portal_settings.urls')),
+    path('webinars/', include('api.v1.webinars.urls')),
+    path('webinar/', include('api.v1.webinars.urls')),
+    path('workshops/', include('api.v1.webinars.urls')),
 ]
