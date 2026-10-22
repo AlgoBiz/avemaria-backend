@@ -49,8 +49,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        if instance.cover_image:
+            instance.cover_image.delete(save=False)
+        instance.delete()
 
     @extend_schema(
         summary="Create category",

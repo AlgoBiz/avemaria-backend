@@ -1,11 +1,13 @@
+import calendar
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
 from django.db.models import Count, Sum, Q, Avg
 from drf_spectacular.utils import extend_schema
-from apps.courses.models import Course
+from apps.courses.models import Course, CourseEnrollment
 from apps.categories.models import Category
-from apps.resources.models import PaidResource, ResourcePDF
+from apps.resources.models import PaidResource, ResourcePDF, ResourcePurchase
 from apps.students.models import Student
 from apps.enquiries.models import Enquiry
 from apps.testimonials.models import Testimonial
@@ -56,49 +58,145 @@ class DashboardOverviewView(APIView):
             parts = [p for p in [dur, mode.capitalize() if mode else ''] if p]
             item['schedule_display'] = ' • '.join(parts)
 
-        packs_label = f'Across {resource_pools_count} study resource packs' if resource_pools_count else 'Across 3 study resource packs'
-        courses_label = f'Across {categories_count} categories' if categories_count else 'Across 5 categories'
+        packs_label = f'Across {resource_pools_count} study resource pack{"s" if resource_pools_count != 1 else ""}'
+        courses_label = f'Across {categories_count} categor{"ies" if categories_count != 1 else "y"}'
 
-        # Performance Bar Graph KPIs & Monthly comparative chart data
+        now = timezone.now()
+        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if current_month_start.month == 1:
+            prev_month_start = current_month_start.replace(year=current_month_start.year - 1, month=12)
+        else:
+            prev_month_start = current_month_start.replace(month=current_month_start.month - 1)
+
+        # 1. Course Enrolments
+        total_course_enrollments = CourseEnrollment.objects.filter(is_deleted=False).count()
+        this_month_enr = CourseEnrollment.objects.filter(
+            is_deleted=False,
+            enrolled_at__gte=current_month_start
+        ).count()
+        prev_month_enr = CourseEnrollment.objects.filter(
+            is_deleted=False,
+            enrolled_at__gte=prev_month_start,
+            enrolled_at__lt=current_month_start
+        ).count()
+
+        if prev_month_enr > 0:
+            enr_change = ((this_month_enr - prev_month_enr) / prev_month_enr) * 100
+            enr_change_str = f"{enr_change:+.1f}%"
+            enr_trend = 'up' if enr_change >= 0 else 'down'
+        elif this_month_enr > 0:
+            enr_change_str = '+100.0%'
+            enr_trend = 'up'
+        else:
+            enr_change_str = '+0.0%'
+            enr_trend = 'up'
+
+        # 2. Resource Downloads & Purchases
+        purchases_agg = ResourcePurchase.objects.filter(is_deleted=False).aggregate(
+            total_dl=Sum('download_count'),
+            total_purchases=Count('id')
+        )
+        total_downloads = purchases_agg['total_dl'] or 0
+        total_purchases = purchases_agg['total_purchases'] or 0
+        total_resource_activity = max(total_downloads, total_purchases)
+
+        this_month_purchases = ResourcePurchase.objects.filter(
+            is_deleted=False,
+            purchased_at__gte=current_month_start
+        ).count()
+        prev_month_purchases = ResourcePurchase.objects.filter(
+            is_deleted=False,
+            purchased_at__gte=prev_month_start,
+            purchased_at__lt=current_month_start
+        ).count()
+
+        if prev_month_purchases > 0:
+            dl_change = ((this_month_purchases - prev_month_purchases) / prev_month_purchases) * 100
+            dl_change_str = f"{dl_change:+.1f}%"
+            dl_trend = 'up' if dl_change >= 0 else 'down'
+        elif this_month_purchases > 0:
+            dl_change_str = '+100.0%'
+            dl_trend = 'up'
+        else:
+            dl_change_str = '+0.0%'
+            dl_trend = 'up'
+
+        # 3. Pass Success Rate
+        completed_enrollments_count = CourseEnrollment.objects.filter(is_deleted=False, status='completed').count()
+        if total_course_enrollments > 0:
+            pass_rate = round((completed_enrollments_count / total_course_enrollments) * 100, 1)
+        else:
+            pass_rate = 0.0
+
+        # 4. Average Satisfaction Rating
+        testimonial_stats = Testimonial.objects.filter(is_active=True, is_deleted=False).aggregate(
+            avg_rating=Avg('rating'),
+            count=Count('id')
+        )
+        avg_satisfaction_rating = round(testimonial_stats['avg_rating'] or 0.0, 2)
+        reviews_count = testimonial_stats['count'] or 0
+        stars_count = int(round(avg_satisfaction_rating)) if avg_satisfaction_rating > 0 else 0
+        reviews_label = f"Based on {reviews_count} review{'s' if reviews_count != 1 else ''}" if reviews_count > 0 else "Based on 0 reviews"
+
         kpis = {
             'course_enrolments': {
-                'value': '1,420',
-                'count': 1420,
-                'change': '+18.4%',
-                'trend': 'up',
+                'value': f"{total_course_enrollments:,}",
+                'count': total_course_enrollments,
+                'change': enr_change_str,
+                'trend': enr_trend,
                 'label': 'Active programme students'
             },
             'resource_downloads': {
-                'value': '3,890',
-                'count': 3890,
-                'change': '+24.2%',
-                'trend': 'up',
+                'value': f"{total_resource_activity:,}",
+                'count': total_resource_activity,
+                'change': dl_change_str,
+                'trend': dl_trend,
                 'label': 'PDFs & mock papers accessed'
             },
             'pass_success_rate': {
-                'value': '97.8%',
-                'percentage': 97.8,
-                'badge': 'Verified',
+                'value': f"{pass_rate}%",
+                'percentage': pass_rate,
+                'badge': 'Verified' if pass_rate >= 50 else 'Normal',
                 'label': 'Licensing & PSC qualifiers'
             },
             'avg_satisfaction': {
-                'value': '4.92 / 5',
-                'rating': 4.92,
+                'value': f"{avg_satisfaction_rating:.2f} / 5" if reviews_count > 0 else "0.0 / 5",
+                'rating': avg_satisfaction_rating,
                 'max_rating': 5,
-                'stars': 5,
-                'reviews_count_label': 'Based on 1,650+ reviews'
+                'stars': stars_count,
+                'reviews_count_label': reviews_label
             }
         }
 
-        chart_data = [
-            {'month': 'Feb', 'courses': 45, 'resources': 75, 'total': 120},
-            {'month': 'Mar', 'courses': 58, 'resources': 110, 'total': 168},
-            {'month': 'Apr', 'courses': 74, 'resources': 142, 'total': 216},
-            {'month': 'May', 'courses': 62, 'resources': 130, 'total': 192},
-            {'month': 'Jun', 'courses': 105, 'resources': 185, 'total': 290},
-            {'month': 'Jul', 'courses': 118, 'resources': 220, 'total': 338},
-            {'month': 'Aug', 'courses': 130, 'resources': 260, 'total': 390},
-        ]
+        # Dynamic monthly comparative chart data for the last 7 months
+        chart_data = []
+        for i in range(6, -1, -1):
+            y = now.year
+            m = now.month - i
+            while m <= 0:
+                m += 12
+                y -= 1
+
+            month_name = calendar.month_abbr[m]
+
+            m_courses = CourseEnrollment.objects.filter(
+                is_deleted=False,
+                enrolled_at__year=y,
+                enrolled_at__month=m
+            ).count()
+
+            m_resources = ResourcePurchase.objects.filter(
+                is_deleted=False,
+                purchased_at__year=y,
+                purchased_at__month=m
+            ).count()
+
+            chart_data.append({
+                'month': month_name,
+                'courses': m_courses,
+                'resources': m_resources,
+                'total': m_courses + m_resources
+            })
 
         # Dynamic Item-Wise Performance Breakdown (Top performing courses and resources from database)
         courses_qs = Course.objects.filter(is_deleted=False).select_related('category').annotate(
@@ -111,8 +209,8 @@ class DashboardOverviewView(APIView):
             total_downloads=Sum('purchases__download_count', filter=Q(purchases__is_deleted=False))
         ).order_by('-total_downloads', '-purchases_count', '-created_at')
 
-        avg_t = Testimonial.objects.filter(is_active=True, is_deleted=False).aggregate(avg_rating=Avg('rating'))['avg_rating']
-        resource_rating_str = f"{round(avg_t, 1):.1f} / 5.0 Average Rating" if avg_t else "4.9 / 5.0 Average Rating"
+        avg_t = testimonial_stats['avg_rating']
+        resource_rating_str = f"{round(avg_t, 1):.1f} / 5.0 Average Rating" if avg_t else "No ratings yet"
 
         course_items = []
         for course in courses_qs[:10]:
@@ -124,8 +222,10 @@ class DashboardOverviewView(APIView):
                 success_metric = f"{rate}% Completion Rate"
             elif course.rating:
                 success_metric = f"{course.rating} / 5.0 Average Rating"
+            elif tot_enr > 0:
+                success_metric = f"{tot_enr} Active Learner{'s' if tot_enr != 1 else ''}"
             else:
-                success_metric = "95.0% Completion Rate"
+                success_metric = "No ratings yet"
 
             curr = course.currency if course.currency and course.currency not in ['', '?', ''] else '£'
             if course.fee is not None:

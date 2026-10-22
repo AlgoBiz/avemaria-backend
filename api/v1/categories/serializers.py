@@ -16,7 +16,16 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
             'description', 'created_at'
         )
         extra_kwargs = {
-            'cover_image': {'required': False, 'allow_null': True},
+            'cover_image': {
+                'required': True,
+                'allow_null': False,
+                'error_messages': {
+                    'required': 'Category image is required.',
+                    'null': 'Category image cannot be null.',
+                    'empty': 'Category image cannot be empty.',
+                    'invalid': 'Upload a valid image.'
+                }
+            },
             'description': {'required': False, 'allow_blank': True}
         }
 
@@ -65,6 +74,10 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
         title = attrs.get('title') or (self.instance and self.instance.title)
         if not title or not str(title).strip():
             raise serializers.ValidationError({"title": "Category title is required."})
+
+        has_image = bool(attrs.get('cover_image') or (self.instance and self.instance.cover_image))
+        if not has_image:
+            raise serializers.ValidationError({"cover_image": "Category image is required."})
 
         cleaned = ' '.join(str(title).strip().split())
         attrs['title'] = cleaned
@@ -119,7 +132,15 @@ class CategorySerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
-            'cover_image': {'required': False, 'allow_null': True},
+            'cover_image': {
+                'required': False,
+                'allow_null': False,
+                'error_messages': {
+                    'null': 'Category image cannot be null.',
+                    'empty': 'Category image cannot be empty.',
+                    'invalid': 'Upload a valid image.'
+                }
+            },
             'description': {'required': False, 'allow_blank': True}
         }
 
@@ -170,6 +191,10 @@ class CategorySerializer(serializers.ModelSerializer):
         title = attrs.get('title') or (self.instance and self.instance.title)
         if not title or not str(title).strip():
             raise serializers.ValidationError({"title": "Category title is required."})
+
+        has_image = bool(attrs.get('cover_image') or (self.instance and self.instance.cover_image))
+        if not has_image:
+            raise serializers.ValidationError({"cover_image": "Category image is required."})
 
         cleaned = ' '.join(str(title).strip().split())
         attrs['title'] = cleaned

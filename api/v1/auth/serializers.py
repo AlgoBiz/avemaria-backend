@@ -1,7 +1,26 @@
+import base64
+import uuid
 from datetime import datetime, date
+from django.core.files.base import ContentFile
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.accounts.models import User
+
+
+class Base64ImageField(serializers.ImageField):
+    """
+    Accepts base64-encoded image strings (data:image/...;base64,...)
+    and converts them into Django file objects. Also accepts normal file uploads.
+    """
+    def to_internal_value(self, data):
+        if isinstance(data, str) and data.startswith('data:image'):
+            fmt, imgstr = data.split(';base64,')
+            ext = fmt.split('/')[-1].split('+')[0]
+            if ext == 'jpeg':
+                ext = 'jpg'
+            file_name = f"avatar_{uuid.uuid4().hex[:12]}.{ext}"
+            data = ContentFile(base64.b64decode(imgstr), name=file_name)
+        return super().to_internal_value(data)
 
 
 class AdminProfileSerializer(serializers.ModelSerializer):
@@ -187,12 +206,16 @@ class StudentProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(source='name', required=False, allow_blank=True)
     highest_qualification = serializers.CharField(source='qualification', required=False, allow_blank=True)
     dob = FlexibleDateField(source='date_of_birth', required=False, allow_null=True)
+    avatar = Base64ImageField(required=False, allow_null=True)
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         from apps.students.models import Student
         model = Student
         fields = (
             'id',
+            'avatar',
+            'avatar_url',
             'full_name',
             'email',
             'phone',
@@ -223,7 +246,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'updated_at'
         )
         read_only_fields = (
-            'id', 'email', 'status', 'documents', 'registered_date', 'created_at', 'updated_at'
+            'id', 'email', 'avatar_url', 'status', 'documents', 'registered_date', 'created_at', 'updated_at'
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
