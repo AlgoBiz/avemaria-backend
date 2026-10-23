@@ -4,6 +4,11 @@ from core.fields import JSONDataField
 
 
 class Faculty(BaseModel):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('inactive', 'Inactive'),
+    )
+
     name = models.CharField(max_length=150, help_text="Full name of faculty member / mentor, e.g. Dr. Sarah Jenkins")
     title = models.CharField(max_length=150, blank=True, default="", help_text="Designation / Title, e.g. Clinical Biochemistry Lead")
     qualification = models.CharField(max_length=255, blank=True, default="", help_text="Academic & professional qualifications, e.g. PhD, FRCPath, HCPC Reg")
@@ -17,6 +22,7 @@ class Faculty(BaseModel):
     image = models.ImageField(upload_to='faculty/', null=True, blank=True, help_text="Profile photo")
     email = models.EmailField(blank=True, null=True, help_text="Contact email address")
     phone = models.CharField(max_length=30, blank=True, null=True, help_text="Contact phone number")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active', help_text="Faculty status: active or inactive")
     is_published = models.BooleanField(default=True, help_text="Whether this faculty profile is published / active")
     is_featured = models.BooleanField(default=False, help_text="Whether this faculty is featured on the home/landing page")
     display_order = models.PositiveIntegerField(default=0, help_text="Order in faculty listings (ascending)")
@@ -28,6 +34,18 @@ class Faculty(BaseModel):
         ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
+        # Sync status with is_active
+        if self.status:
+            self.status = str(self.status).strip().lower()
+            if self.status == 'active':
+                self.is_active = True
+            elif self.status == 'inactive':
+                self.is_active = False
+            else:
+                self.status = 'active' if self.is_active else 'inactive'
+        else:
+            self.status = 'active' if self.is_active else 'inactive'
+
         if not self.slug:
             from django.utils.text import slugify
             base_slug = slugify(self.name) or 'faculty'

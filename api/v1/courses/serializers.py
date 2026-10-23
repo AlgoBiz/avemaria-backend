@@ -590,6 +590,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 "faculty_experience": instance.faculty.experience or instance.faculty_experience or "",
                 "faculty_bio": instance.faculty.bio or instance.faculty_bio or "",
                 "faculty_image": fac_image_url,
+                "specialities": instance.faculty.specialities or [],
+                "status": instance.faculty.status or 'active',
             })
         elif instance.faculty_name:
             fac_image_url = None
@@ -603,6 +605,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 "faculty_experience": instance.faculty_experience or "",
                 "faculty_bio": instance.faculty_bio or "",
                 "faculty_image": fac_image_url,
+                "specialities": [],
+                "status": "active",
             })
 
         course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
