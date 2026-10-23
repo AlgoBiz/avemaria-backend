@@ -231,6 +231,23 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
         ordered_ret['status'] = instance.status or ('published' if instance.is_published else 'draft')
+
+        # Prefer live FK faculty data over stale snapshot fields
+        if instance.faculty:
+            ordered_ret['faculty_name'] = instance.faculty.name or instance.faculty_name or ''
+            ordered_ret['faculty_title'] = instance.faculty.title or instance.faculty_title or ''
+            ordered_ret['faculty_qualification'] = instance.faculty.qualification or instance.faculty_qualification or ''
+            ordered_ret['faculty_experience'] = instance.faculty.experience or instance.faculty_experience or ''
+            ordered_ret['faculty_bio'] = instance.faculty.bio or instance.faculty_bio or ''
+
+            request = self.context.get('request')
+            fac_image_url = None
+            if instance.faculty.image:
+                fac_image_url = request.build_absolute_uri(instance.faculty.image.url) if request else instance.faculty.image.url
+            elif instance.faculty_image:
+                fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
+            ordered_ret['faculty_image'] = fac_image_url
+
         return ordered_ret
 
 
