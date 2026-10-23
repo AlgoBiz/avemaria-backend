@@ -7,6 +7,7 @@ class FacultySerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     faculty_display = serializers.CharField(read_only=True)
     initials = serializers.CharField(read_only=True)
+    specialities = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = Faculty
@@ -18,6 +19,7 @@ class FacultySerializer(serializers.ModelSerializer):
             'qualification',
             'experience',
             'department',
+            'specialities',
             'bio',
             'image',
             'email',
@@ -46,6 +48,7 @@ class FacultyListSerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     faculty_display = serializers.CharField(read_only=True)
     initials = serializers.CharField(read_only=True)
+    specialities = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = Faculty
@@ -57,6 +60,7 @@ class FacultyListSerializer(serializers.ModelSerializer):
             'qualification',
             'experience',
             'department',
+            'specialities',
             'bio',
             'image',
             'is_published',

@@ -1,5 +1,6 @@
 from django.db import models
 from core.models import BaseModel
+from core.fields import JSONDataField
 
 
 class Faculty(BaseModel):
@@ -8,6 +9,10 @@ class Faculty(BaseModel):
     qualification = models.CharField(max_length=255, blank=True, default="", help_text="Academic & professional qualifications, e.g. PhD, FRCPath, HCPC Reg")
     experience = models.CharField(max_length=150, blank=True, default="", help_text="Years / description of experience, e.g. 15+ Years Clinical & Academic Experience")
     department = models.CharField(max_length=150, blank=True, default="", help_text="Department / Specialization, e.g. Biomedical Science")
+    specialities = JSONDataField(
+        default=list, blank=True,
+        help_text="List of specialities, e.g. ['Cardiology', 'Internal Medicine']"
+    )
     bio = models.TextField(blank=True, null=True, help_text="Full bio / profile narrative")
     image = models.ImageField(upload_to='faculty/', null=True, blank=True, help_text="Profile photo")
     email = models.EmailField(blank=True, null=True, help_text="Contact email address")
