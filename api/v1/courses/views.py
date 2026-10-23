@@ -102,28 +102,44 @@ class CourseViewSet(viewsets.ModelViewSet):
             name = (f.name or '').strip()
             if name and name.lower() not in seen:
                 seen.add(name.lower())
+                fac_image = None
+                if f.image:
+                    fac_image = request.build_absolute_uri(f.image.url) if request else f.image.url
                 faculties.append({
+                    'id': str(f.uuid),
                     'faculty_name': name,
                     'faculty_title': f.title or '',
                     'faculty_qualification': f.qualification or f.title or '',
                     'faculty_experience': f.experience or '',
                     'faculty_bio': f.bio or '',
                     'faculty_display': f.faculty_display,
-                    'faculty_image': f.image.url if f.image else None
+                    'faculty_image': fac_image,
+                    'specialities': f.specialities or [],
+                    'status': f.status or 'active',
                 })
 
+        # Fallback: pick up any orphan faculty names stored only as course snapshots
         courses = Course.objects.filter(is_deleted=False).exclude(faculty_name='').exclude(faculty_name__isnull=True).order_by('-created_at', '-id')
         for c in courses:
+            # If the course has a FK to Faculty, prefer that (already handled above)
+            if c.faculty_id:
+                continue
             name = (c.faculty_name or '').strip()
             if name and name.lower() not in seen:
                 seen.add(name.lower())
+                fac_image = None
+                if c.faculty_image:
+                    fac_image = request.build_absolute_uri(c.faculty_image.url) if request else c.faculty_image.url
                 faculties.append({
+                    'id': None,
                     'faculty_name': name,
                     'faculty_title': c.faculty_title or '',
                     'faculty_qualification': c.faculty_qualification or c.faculty_title or '',
                     'faculty_experience': c.faculty_experience or '',
                     'faculty_bio': c.faculty_bio or '',
                     'faculty_display': f"{name} ({c.faculty_qualification or c.faculty_title})" if (c.faculty_qualification or c.faculty_title) else name,
-                    'faculty_image': c.faculty_image.url if c.faculty_image else None
+                    'faculty_image': fac_image,
+                    'specialities': [],
+                    'status': 'active',
                 })
         return Response({'count': len(faculties), 'results': faculties})

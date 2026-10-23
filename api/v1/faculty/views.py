@@ -18,7 +18,7 @@ class FacultyViewSet(viewsets.ModelViewSet):
     serializer_class = FacultySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['is_published', 'is_featured', 'department']
+    filterset_fields = ['is_published', 'is_featured', 'department', 'status']
     search_fields = ['name', 'title', 'qualification', 'department', 'bio']
     ordering_fields = ['created_at', 'display_order', 'name']
     ordering = ['-created_at', '-id']

@@ -7,6 +7,8 @@ class FacultySerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     faculty_display = serializers.CharField(read_only=True)
     initials = serializers.CharField(read_only=True)
+    specialities = serializers.JSONField(required=False, default=list)
+    status = serializers.ChoiceField(choices=['active', 'inactive'], default='active', required=False)
 
     class Meta:
         model = Faculty
@@ -18,10 +20,12 @@ class FacultySerializer(serializers.ModelSerializer):
             'qualification',
             'experience',
             'department',
+            'specialities',
             'bio',
             'image',
             'email',
             'phone',
+            'status',
             'is_published',
             'is_featured',
             'display_order',
@@ -46,6 +50,8 @@ class FacultyListSerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     faculty_display = serializers.CharField(read_only=True)
     initials = serializers.CharField(read_only=True)
+    specialities = serializers.JSONField(required=False, default=list)
+    status = serializers.ChoiceField(choices=['active', 'inactive'], default='active', required=False)
 
     class Meta:
         model = Faculty
@@ -57,8 +63,10 @@ class FacultyListSerializer(serializers.ModelSerializer):
             'qualification',
             'experience',
             'department',
+            'specialities',
             'bio',
             'image',
+            'status',
             'is_published',
             'is_featured',
             'display_order',

@@ -211,8 +211,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_faculty_display(self, obj):
-        name = obj.faculty_name or ''
-        qual = obj.faculty_qualification or obj.faculty_title or ''
+        name = (obj.faculty.name if obj.faculty else '') or obj.faculty_name or ''
+        qual = (obj.faculty.qualification or obj.faculty.title if obj.faculty else '') or obj.faculty_qualification or obj.faculty_title or ''
         if name and qual:
             return f"{name} ({qual})"
         return name or qual
@@ -590,6 +590,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 "faculty_experience": instance.faculty.experience or instance.faculty_experience or "",
                 "faculty_bio": instance.faculty.bio or instance.faculty_bio or "",
                 "faculty_image": fac_image_url,
+                "specialities": instance.faculty.specialities or [],
+                "status": instance.faculty.status or 'active',
             })
         elif instance.faculty_name:
             fac_image_url = None
@@ -603,6 +605,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 "faculty_experience": instance.faculty_experience or "",
                 "faculty_bio": instance.faculty_bio or "",
                 "faculty_image": fac_image_url,
+                "specialities": [],
+                "status": "active",
             })
 
         course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
@@ -627,11 +631,11 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             ('weekly_session_commitment', instance.weekly_session_commitment or ''),
             ('schedule_details', instance.schedule_details or ''),
             ('faculty', faculty_list),
-            ('faculty_name', instance.faculty_name or (instance.faculty.name if instance.faculty else '')),
-            ('faculty_qualification', instance.faculty_qualification or (instance.faculty.qualification if instance.faculty else '')),
-            ('faculty_title', instance.faculty_title or (instance.faculty.title if instance.faculty else '')),
-            ('faculty_experience', instance.faculty_experience or (instance.faculty.experience if instance.faculty else '')),
-            ('faculty_bio', instance.faculty_bio or (instance.faculty.bio if instance.faculty else '')),
+            ('faculty_name', (instance.faculty.name if instance.faculty else '') or instance.faculty_name or ''),
+            ('faculty_qualification', (instance.faculty.qualification if instance.faculty else '') or instance.faculty_qualification or ''),
+            ('faculty_title', (instance.faculty.title if instance.faculty else '') or instance.faculty_title or ''),
+            ('faculty_experience', (instance.faculty.experience if instance.faculty else '') or instance.faculty_experience or ''),
+            ('faculty_bio', (instance.faculty.bio if instance.faculty else '') or instance.faculty_bio or ''),
             ('faqs', instance.faqs or []),
             ('meta_description', instance.meta_description or ''),
             ('meta_keywords', instance.meta_keywords or []),
