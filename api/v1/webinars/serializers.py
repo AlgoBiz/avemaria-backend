@@ -1,4 +1,3 @@
-import json
 import uuid
 import datetime
 from rest_framework import serializers
@@ -157,11 +156,9 @@ class WebinarSerializer(serializers.ModelSerializer):
 
         agenda_val = mutable_data.get('outline_agenda')
         if isinstance(agenda_val, str) and agenda_val.strip():
-            # Convert newline/bullet string back to list
-            lines = [line.strip().lstrip('•-* ').strip() for line in agenda_val.splitlines() if line.strip()]
-            mutable_data['outline_agenda'] = lines
+            raise serializers.ValidationError({'outline_agenda': 'outline_agenda must be an array, e.g. ["Point 1", "Point 2"]'})
         elif isinstance(agenda_val, dict):
-            mutable_data['outline_agenda'] = [f"{k}: {v}" for k, v in agenda_val.items()]
+            raise serializers.ValidationError({'outline_agenda': 'outline_agenda must be an array, e.g. ["Point 1", "Point 2"]'})
 
         # Parse speaker input: accept speaker as int ID, UUID string, or object {"id": ...}
         raw_speaker = mutable_data.get('speaker')
