@@ -17,12 +17,18 @@ class Course(BaseModel):
         ('live online+recorded', 'Live online+recorded'),
     )
 
+    DURATION_UNIT_CHOICES = (
+        ('week', 'Week'),
+        ('month', 'Month'),
+    )
+
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
     overview_description = models.TextField(blank=True, default='', help_text="Course overview description below course name")
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='courses')
     summary = models.TextField(help_text="Course summary and introduction")
-    duration = models.CharField(max_length=100, default="16 weeks")
+    duration = models.CharField(max_length=100, default="16", help_text="Duration number e.g. 4, 16")
+    duration_unit = models.CharField(max_length=10, choices=DURATION_UNIT_CHOICES, default='week')
     level = models.CharField(max_length=50, choices=LEVEL_CHOICES, default='Advanced')
     fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     currency = models.CharField(max_length=10, default='£')
