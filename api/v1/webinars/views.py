@@ -54,6 +54,7 @@ class WebinarViewSet(viewsets.ModelViewSet):
         """
         response = super().list(request, *args, **kwargs)
 
+        today = timezone.localdate()
         # Base queryset for metric counts
         base_qs = Webinar.objects.filter(is_deleted=False)
         if not (request.user and request.user.is_authenticated):
@@ -62,24 +63,33 @@ class WebinarViewSet(viewsets.ModelViewSet):
         total_count = base_qs.count()
         webinars_count = base_qs.filter(type=Webinar.TYPE_WEBINAR).count()
         workshops_count = base_qs.filter(type=Webinar.TYPE_WORKSHOP).count()
+        upcoming_count = base_qs.filter(scheduled_date__gte=today).count()
+        expired_count = base_qs.filter(scheduled_date__lt=today).count()
+        active_webinars_count = base_qs.filter(type=Webinar.TYPE_WEBINAR, scheduled_date__gte=today).count()
 
         # Provide top-level keys and a nested counts object for frontend convenience
         response.data['total_count'] = total_count
         response.data['webinars_count'] = webinars_count
         response.data['workshops_count'] = workshops_count
+        response.data['upcoming_count'] = upcoming_count
+        response.data['expired_count'] = expired_count
+        response.data['active_webinars_count'] = active_webinars_count
         response.data['counts'] = {
             'total': total_count,
             'total_sessions': total_count,
             'webinars': webinars_count,
-            'active_webinars': webinars_count,
+            'active_webinars': active_webinars_count,
             'workshops': workshops_count,
             'hands_on_workshops': workshops_count,
+            'upcoming': upcoming_count,
+            'expired': expired_count,
         }
 
         return response
 
     def get_queryset(self):
         qs = super().get_queryset().filter(is_deleted=False).select_related('speaker')
+        today = timezone.localdate()
 
         # Filter by type (?type=webinar / ?type=workshop)
         type_param = self.request.query_params.get('type')
@@ -92,7 +102,7 @@ class WebinarViewSet(viewsets.ModelViewSet):
             else:
                 qs = qs.filter(type=t)
 
-        # Filter by status (?status=publish / draft / published)
+        # Filter by status (?status=publish / draft / expired / upcoming)
         status_param = self.request.query_params.get('status')
         if status_param and status_param.strip().lower() != 'all':
             s = status_param.strip().lower()
@@ -100,11 +110,24 @@ class WebinarViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(status__in=[Webinar.STATUS_PUBLISHED, 'publish'])
             elif s in ['draft', 'unpublished']:
                 qs = qs.filter(status=Webinar.STATUS_DRAFT)
+            elif s in ['expired', 'past']:
+                qs = qs.filter(scheduled_date__lt=today)
+            elif s in ['upcoming']:
+                qs = qs.filter(scheduled_date__gte=today)
             else:
                 qs = qs.filter(status=s)
         elif not (self.request.user and self.request.user.is_authenticated):
             # By default unauthenticated public portal visitors only see published webinars/workshops
             qs = qs.filter(status__in=[Webinar.STATUS_PUBLISHED, 'publish'])
+
+        # Filter by event_status (?event_status=expired / upcoming)
+        event_status_param = self.request.query_params.get('event_status')
+        if event_status_param and event_status_param.strip().lower() != 'all':
+            es = event_status_param.strip().lower()
+            if es in ['expired', 'past']:
+                qs = qs.filter(scheduled_date__lt=today)
+            elif es in ['upcoming', 'active']:
+                qs = qs.filter(scheduled_date__gte=today)
 
         # Filter by speaker (?speaker=1 or ?speaker=<uuid>)
         speaker_param = self.request.query_params.get('speaker')
@@ -119,15 +142,16 @@ class WebinarViewSet(viewsets.ModelViewSet):
                 except (ValueError, TypeError):
                     qs = qs.filter(speaker__name__icontains=s_val)
 
-        # Filter upcoming vs past (?upcoming=true / ?past=true)
-        today = timezone.localdate()
+        # Filter upcoming vs past/expired (?upcoming=true / ?past=true / ?expired=true)
         upcoming_param = self.request.query_params.get('upcoming')
         if upcoming_param and upcoming_param.strip().lower() in ['true', '1', 'yes']:
             qs = qs.filter(scheduled_date__gte=today)
 
-        past_param = self.request.query_params.get('past')
+        past_param = self.request.query_params.get('past') or self.request.query_params.get('expired')
         if past_param and past_param.strip().lower() in ['true', '1', 'yes']:
             qs = qs.filter(scheduled_date__lt=today)
+        elif past_param and past_param.strip().lower() in ['false', '0', 'no']:
+            qs = qs.filter(models.Q(scheduled_date__gte=today) | models.Q(scheduled_date__isnull=True))
 
         return qs
 

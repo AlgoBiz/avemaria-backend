@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 from core.models import BaseModel
 
@@ -129,6 +130,25 @@ class Webinar(BaseModel):
     @property
     def is_published(self):
         return self.status in [self.STATUS_PUBLISHED, 'publish']
+
+    @property
+    def is_expired(self):
+        """Returns True if the scheduled date has passed (prior to today)."""
+        if not self.scheduled_date:
+            return False
+        return self.scheduled_date < timezone.localdate()
+
+    @property
+    def event_status(self):
+        """
+        Returns 'expired' if the scheduled date has passed,
+        'draft' if not published, or 'upcoming'.
+        """
+        if not self.is_published:
+            return 'draft'
+        if self.is_expired:
+            return 'expired'
+        return 'upcoming'
 
     @property
     def effective_cover_image(self):
