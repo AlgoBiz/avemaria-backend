@@ -46,6 +46,38 @@ class WebinarViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
+    def list(self, request, *args, **kwargs):
+        """
+        Override list to include webinar/workshop counts in the response.
+        The counts are computed from the base queryset (respecting auth visibility),
+        so they remain stable regardless of search/type/status query params.
+        """
+        response = super().list(request, *args, **kwargs)
+
+        # Base queryset for metric counts
+        base_qs = Webinar.objects.filter(is_deleted=False)
+        if not (request.user and request.user.is_authenticated):
+            base_qs = base_qs.filter(status__in=[Webinar.STATUS_PUBLISHED, 'publish'])
+
+        total_count = base_qs.count()
+        webinars_count = base_qs.filter(type=Webinar.TYPE_WEBINAR).count()
+        workshops_count = base_qs.filter(type=Webinar.TYPE_WORKSHOP).count()
+
+        # Provide top-level keys and a nested counts object for frontend convenience
+        response.data['total_count'] = total_count
+        response.data['webinars_count'] = webinars_count
+        response.data['workshops_count'] = workshops_count
+        response.data['counts'] = {
+            'total': total_count,
+            'total_sessions': total_count,
+            'webinars': webinars_count,
+            'active_webinars': webinars_count,
+            'workshops': workshops_count,
+            'hands_on_workshops': workshops_count,
+        }
+
+        return response
+
     def get_queryset(self):
         qs = super().get_queryset().filter(is_deleted=False).select_related('speaker')
 
