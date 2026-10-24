@@ -1,3 +1,4 @@
+import uuid
 from collections import OrderedDict
 from django.db import models
 from rest_framework import serializers
@@ -6,6 +7,31 @@ from apps.courses.models import Course
 from apps.categories.models import Category
 from apps.faculty.models import Faculty
 from api.v1.categories.serializers import CategorySerializer
+
+
+def _clean_faculty_name_and_qual(faculty_obj, stored_name, stored_qual, stored_title=""):
+    """
+    Returns clean (faculty_name, faculty_qualification).
+    If faculty_name was accidentally stored as a raw UUID string, resolves the
+    true faculty member by UUID and returns their actual name and qualification.
+    """
+    name = (faculty_obj.name if faculty_obj else "") or stored_name or ""
+    qual = (faculty_obj.qualification or faculty_obj.title if faculty_obj else "") or stored_qual or stored_title or ""
+
+    if name:
+        try:
+            u = uuid.UUID(str(name).strip())
+            real_fac = Faculty.objects.filter(uuid=u).first()
+            if real_fac:
+                if real_fac.name and real_fac.name != name:
+                    name = real_fac.name
+                if not qual and (real_fac.qualification or real_fac.title):
+                    qual = real_fac.qualification or real_fac.title
+        except (ValueError, TypeError):
+            pass
+
+    return name, qual
+
 
 class CourseListSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
@@ -61,15 +87,13 @@ class CourseListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_faculty_name(self, obj):
-        if obj.faculty and obj.faculty.name:
-            return obj.faculty.name
-        return obj.faculty_name or ""
+        name, _ = _clean_faculty_name_and_qual(obj.faculty, obj.faculty_name, obj.faculty_qualification, getattr(obj, 'faculty_title', ''))
+        return name
 
     @extend_schema_field(serializers.CharField())
     def get_faculty_qualification(self, obj):
-        if obj.faculty and (obj.faculty.qualification or obj.faculty.title):
-            return obj.faculty.qualification or obj.faculty.title
-        return obj.faculty_qualification or obj.faculty_title or ""
+        _, qual = _clean_faculty_name_and_qual(obj.faculty, obj.faculty_name, obj.faculty_qualification, getattr(obj, 'faculty_title', ''))
+        return qual
 
     def to_representation(self, instance):
         request = self.context.get('request')
@@ -80,14 +104,12 @@ class CourseListSerializer(serializers.ModelSerializer):
         curr = instance.currency or '£'
         fee_str = f"{curr}{int(instance.fee)}" if instance.fee == int(instance.fee) else f"{curr}{instance.fee:.2f}"
 
-        faculty_name = ""
-        faculty_qualification = ""
-        if instance.faculty:
-            faculty_name = instance.faculty.name or instance.faculty_name or ""
-            faculty_qualification = instance.faculty.qualification or instance.faculty_qualification or instance.faculty.title or ""
-        else:
-            faculty_name = instance.faculty_name or ""
-            faculty_qualification = instance.faculty_qualification or instance.faculty_title or ""
+        faculty_name, faculty_qualification = _clean_faculty_name_and_qual(
+            instance.faculty,
+            instance.faculty_name,
+            instance.faculty_qualification,
+            getattr(instance, 'faculty_title', '')
+        )
 
         course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
         return OrderedDict([
@@ -211,8 +233,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_faculty_display(self, obj):
-        name = (obj.faculty.name if obj.faculty else '') or obj.faculty_name or ''
-        qual = (obj.faculty.qualification or obj.faculty.title if obj.faculty else '') or obj.faculty_qualification or obj.faculty_title or ''
+        name, qual = _clean_faculty_name_and_qual(obj.faculty, obj.faculty_name, obj.faculty_qualification, getattr(obj, 'faculty_title', ''))
         if name and qual:
             return f"{name} ({qual})"
         return name or qual
@@ -233,10 +254,17 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         ordered_ret['status'] = instance.status or ('published' if instance.is_published else 'draft')
 
         # Prefer live FK faculty data over stale snapshot fields
+        faculty_name, faculty_qualification = _clean_faculty_name_and_qual(
+            instance.faculty,
+            instance.faculty_name,
+            instance.faculty_qualification,
+            getattr(instance, 'faculty_title', '')
+        )
+        ordered_ret['faculty_name'] = faculty_name
+        ordered_ret['faculty_qualification'] = faculty_qualification
+
         if instance.faculty:
-            ordered_ret['faculty_name'] = instance.faculty.name or instance.faculty_name or ''
             ordered_ret['faculty_title'] = instance.faculty.title or instance.faculty_title or ''
-            ordered_ret['faculty_qualification'] = instance.faculty.qualification or instance.faculty_qualification or ''
             ordered_ret['faculty_experience'] = instance.faculty.experience or instance.faculty_experience or ''
             ordered_ret['faculty_bio'] = instance.faculty.bio or instance.faculty_bio or ''
 
@@ -504,13 +532,33 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             if raw_fac_str.isdigit():
                 found_faculty = Faculty.objects.filter(id=int(raw_fac_str), is_deleted=False).first()
             else:
-                found_faculty = Faculty.objects.filter(is_deleted=False).filter(
-                    models.Q(name__iexact=raw_fac_str) |
-                    models.Q(name__icontains=raw_fac_str)
-                ).first()
+                # 1. Try UUID lookup
+                try:
+                    u = uuid.UUID(raw_fac_str)
+                    found_faculty = Faculty.objects.filter(uuid=u, is_deleted=False).first()
+                except (ValueError, TypeError):
+                    pass
+
+                # 2. Try Name lookup
+                if not found_faculty:
+                    found_faculty = Faculty.objects.filter(is_deleted=False).filter(
+                        models.Q(name__iexact=raw_fac_str) |
+                        models.Q(name__icontains=raw_fac_str)
+                    ).first()
 
             if not found_faculty:
-                if not raw_fac_str.isdigit():
+                is_uuid = False
+                try:
+                    uuid.UUID(raw_fac_str)
+                    is_uuid = True
+                except (ValueError, TypeError):
+                    is_uuid = False
+
+                if is_uuid:
+                    raise serializers.ValidationError({
+                        'faculty': f"Faculty with UUID '{raw_fac_str}' does not exist in the faculty list. Please select an existing faculty from /api/v1/faculty/ or create it first."
+                    })
+                elif not raw_fac_str.isdigit():
                     found_faculty = Faculty.objects.create(
                         name=raw_fac_str,
                         title=data.get('faculty_title', '') or 'Faculty Member',

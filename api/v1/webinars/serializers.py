@@ -37,6 +37,8 @@ class WebinarSerializer(serializers.ModelSerializer):
     speaker_id = serializers.CharField(write_only=True, required=False, allow_null=True)
     cover_image = serializers.FileField(required=False, allow_null=True)
     cover_image_url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    event_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Webinar
@@ -56,12 +58,14 @@ class WebinarSerializer(serializers.ModelSerializer):
             'cover_image',
             'cover_image_url',
             'status',
+            'event_status',
+            'is_expired',
             'is_active',
             'is_deleted',
             'created_at',
             'updated_at'
         )
-        read_only_fields = ('id', 'slug', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'is_expired', 'event_status', 'created_at', 'updated_at')
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -289,6 +293,8 @@ class WebinarListSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     speaker = SpeakerNestedSerializer(read_only=True)
     cover_image = serializers.SerializerMethodField()
+    is_expired = serializers.BooleanField(read_only=True)
+    event_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Webinar
@@ -307,6 +313,8 @@ class WebinarListSerializer(serializers.ModelSerializer):
             'cover_image',
             'cover_image_url',
             'status',
+            'event_status',
+            'is_expired',
             'is_active',
             'is_deleted',
             'created_at',
