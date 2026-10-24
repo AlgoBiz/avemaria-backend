@@ -156,10 +156,12 @@ class WebinarSerializer(serializers.ModelSerializer):
                     break
 
         agenda_val = mutable_data.get('outline_agenda')
-        if isinstance(agenda_val, list):
-            mutable_data['outline_agenda'] = '\n'.join([f"• {item}" if not str(item).startswith(('•', '-', '*')) else str(item) for item in agenda_val])
+        if isinstance(agenda_val, str) and agenda_val.strip():
+            # Convert newline/bullet string back to list
+            lines = [line.strip().lstrip('•-* ').strip() for line in agenda_val.splitlines() if line.strip()]
+            mutable_data['outline_agenda'] = lines
         elif isinstance(agenda_val, dict):
-            mutable_data['outline_agenda'] = json.dumps(agenda_val, indent=2)
+            mutable_data['outline_agenda'] = [f"{k}: {v}" for k, v in agenda_val.items()]
 
         # Parse speaker input: accept speaker as int ID, UUID string, or object {"id": ...}
         raw_speaker = mutable_data.get('speaker')
