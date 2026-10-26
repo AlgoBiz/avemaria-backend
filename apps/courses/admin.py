@@ -10,6 +10,7 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(CourseEnrollment)
 class CourseEnrollmentAdmin(admin.ModelAdmin):
-    list_display = ('student', 'course', 'status', 'progress_percentage', 'enrolled_at')
-    list_filter = ('status', 'enrolled_at')
-    search_fields = ('student__name', 'student__email', 'course__title')
+    list_display = ('student', 'course', 'payment_status', 'payment_method', 'amount_paid', 'currency', 'status', 'progress_percentage', 'enrolled_at')
+    list_filter = ('payment_status', 'payment_method', 'status', 'enrolled_at')
+    search_fields = ('student__name', 'student__email', 'course__title', 'order_id', 'receipt_number')
+

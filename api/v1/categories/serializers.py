@@ -96,7 +96,16 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
                 pass
             else:
                 raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
+
+        if attrs.get('is_featured'):
+            featured_qs = Category.objects.filter(is_featured=True, is_deleted=False)
+            if self.instance and self.instance.pk:
+                featured_qs = featured_qs.exclude(pk=self.instance.pk)
+            if featured_qs.count() >= 4:
+                raise serializers.ValidationError({"is_featured": "Only 4 categories can be featured at a time."})
+
         return attrs
+
 
     def create(self, validated_data):
         title = validated_data.get('title')
@@ -214,7 +223,16 @@ class CategorySerializer(serializers.ModelSerializer):
                 pass
             else:
                 raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
+
+        if attrs.get('is_featured'):
+            featured_qs = Category.objects.filter(is_featured=True, is_deleted=False)
+            if self.instance and self.instance.pk:
+                featured_qs = featured_qs.exclude(pk=self.instance.pk)
+            if featured_qs.count() >= 4:
+                raise serializers.ValidationError({"is_featured": "Only 4 categories can be featured at a time."})
+
         return attrs
+
 
     def create(self, validated_data):
         title = validated_data.get('title')
