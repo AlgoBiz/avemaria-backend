@@ -13,7 +13,7 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
         model = Category
         fields = (
             'id', 'title', 'slug', 'cover_image',
-            'description', 'created_at'
+            'description', 'is_featured', 'created_at'
         )
         extra_kwargs = {
             'cover_image': {
@@ -127,11 +127,12 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = (
             'id', 'title', 'slug', 'cover_image',
             'description', 'programmes_count', 'programmes_label', 'order',
-            'is_active', 'is_deleted', 'created_at', 'updated_at'
+            'is_featured', 'is_active', 'is_deleted', 'created_at', 'updated_at'
         )
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
+            'is_featured': {'default': False, 'required': False},
             'cover_image': {
                 'required': False,
                 'allow_null': False,
@@ -244,7 +245,7 @@ class CategoryListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ('id', 'title', 'cover_image', 'description', 'programmes_count')
+        fields = ('id', 'title', 'cover_image', 'description', 'programmes_count', 'is_featured')
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
