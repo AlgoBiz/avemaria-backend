@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from apps.faculty.models import Faculty
 
 
@@ -82,6 +83,37 @@ class FacultyListSerializer(serializers.ModelSerializer):
             ret['slug'] = instance.slug
         return ret
 
+
+class FacultyMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer returning only id, name, qualification, description, and image."""
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    description = serializers.CharField(source='bio', read_only=True, allow_null=True)
+    image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Faculty
+        fields = (
+            'id',
+            'name',
+            'qualification',
+            'description',
+            'image',
+        )
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_image(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
 
 
 class FacultyStatsSerializer(serializers.Serializer):

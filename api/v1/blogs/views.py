@@ -13,6 +13,7 @@ from .serializers import (
     BlogDetailSerializer,
     BlogCategorySerializer,
     BlogCategoryCreateSerializer,
+    BlogCategoryMinimalSerializer,
     BlogStatsSerializer,
     BlogCategoriesResponseSerializer,
     BlogTogglePublishedResponseSerializer,
@@ -25,12 +26,14 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_serializer_class(self):
+        if self.action == 'minimal':
+            return BlogCategoryMinimalSerializer
         if self.action in ['create', 'create_category']:
             return BlogCategoryCreateSerializer
         return BlogCategorySerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'minimal']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -88,8 +91,15 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
             Blog.objects.filter(category__iexact=old_name).update(category=instance.name)
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        # Cascade delete all blogs in this category and their media
+        blogs = Blog.objects.filter(
+            Q(category__iexact=instance.name) | Q(category__iexact=instance.slug)
+        )
+        for b in blogs:
+            if b.cover_image:
+                b.cover_image.delete(save=False)
+            b.delete()
+        instance.delete()
 
     @extend_schema(
         summary="Create blog category",
@@ -102,6 +112,17 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
         """Create blog category endpoint at /api/v1/blogs/categories/create/"""
         return self.create(request, *args, **kwargs)
 
+    @extend_schema(
+        summary="List minimal blog categories without pagination",
+        description="Returns an unpaginated minimal list of blog categories (id, name, title, slug) for selectors.",
+        responses={200: BlogCategoryMinimalSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='minimal', pagination_class=None)
+    def minimal(self, request, *args, **kwargs):
+        """Unpaginated minimal list of blog categories."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = BlogCategoryMinimalSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class BlogViewSet(viewsets.ModelViewSet):
@@ -287,8 +308,14 @@ class BlogViewSet(viewsets.ModelViewSet):
             return Response(BlogCategorySerializer(updated_cat).data)
 
         elif request.method == 'DELETE':
-            category.is_deleted = True
-            category.save(update_fields=['is_deleted'])
+            blogs = Blog.objects.filter(
+                Q(category__iexact=category.name) | Q(category__iexact=category.slug)
+            )
+            for b in blogs:
+                if b.cover_image:
+                    b.cover_image.delete(save=False)
+                b.delete()
+            category.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -309,5 +336,6 @@ class BlogViewSet(viewsets.ModelViewSet):
         })
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        if instance.cover_image:
+            instance.cover_image.delete(save=False)
+        instance.delete()

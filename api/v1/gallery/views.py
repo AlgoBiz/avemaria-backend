@@ -14,6 +14,7 @@ from .serializers import (
     GalleryCategorySerializer,
     GalleryCategoryCreateSerializer,
     GalleryCategoryListSerializer,
+    GalleryCategoryMinimalSerializer,
 )
 
 
@@ -27,6 +28,8 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
+        if self.action == 'minimal':
+            return GalleryCategoryMinimalSerializer
         if self.action in ['create', 'create_category']:
             return GalleryCategoryCreateSerializer
         if self.action == 'list':
@@ -34,7 +37,7 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
         return GalleryCategorySerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'minimal']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -55,7 +58,10 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         old_name = serializer.instance.name
+        old_image = serializer.instance.image
         instance = serializer.save()
+        if old_image and instance.image and old_image != instance.image:
+            old_image.delete(save=False)
         if old_name != instance.name:
             GalleryItem.objects.filter(models.Q(category__iexact=old_name) | models.Q(category_slug__iexact=serializer.instance.slug)).update(
                 category=instance.name,
@@ -63,8 +69,18 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
             )
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        # Cascade delete all gallery items in this category and their image files
+        items = GalleryItem.objects.filter(
+            models.Q(category__iexact=instance.name) | models.Q(category_slug__iexact=instance.slug)
+        )
+        for item in items:
+            if item.image:
+                item.image.delete(save=False)
+            item.delete()
+
+        if instance.image:
+            instance.image.delete(save=False)
+        instance.delete()
 
     @extend_schema(
         summary="Create gallery category",
@@ -76,6 +92,18 @@ class GalleryCategoryViewSet(viewsets.ModelViewSet):
     def create_category(self, request, *args, **kwargs):
         """Create gallery category endpoint at /api/v1/gallery/categories/create/"""
         return self.create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="List minimal gallery categories without pagination",
+        description="Returns an unpaginated minimal list of gallery categories (id, name, title, slug) for selectors.",
+        responses={200: GalleryCategoryMinimalSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='minimal', pagination_class=None)
+    def minimal(self, request, *args, **kwargs):
+        """Unpaginated minimal list of gallery categories."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = GalleryCategoryMinimalSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class GalleryItemViewSet(viewsets.ModelViewSet):
@@ -207,5 +235,6 @@ class GalleryItemViewSet(viewsets.ModelViewSet):
         return self.create(request, *args, **kwargs)
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        if instance.image:
+            instance.image.delete(save=False)
+        instance.delete()

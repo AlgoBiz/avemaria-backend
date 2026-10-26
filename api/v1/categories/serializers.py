@@ -281,3 +281,21 @@ class CategoryListSerializer(serializers.ModelSerializer):
         return None
 
 
+class CategoryMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer returning only id, name, title, and slug."""
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    name = serializers.CharField(source='title', read_only=True)
+    title = serializers.CharField(read_only=True)
+    slug = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Category
+        fields = ('id', 'name', 'title', 'slug')
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
+
+

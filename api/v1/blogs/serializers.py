@@ -174,6 +174,24 @@ class BlogCategorySerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class BlogCategoryMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer returning only id, name, title, and slug."""
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    name = serializers.CharField(read_only=True)
+    title = serializers.CharField(source='name', read_only=True)
+    slug = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = BlogCategory
+        fields = ('id', 'name', 'title', 'slug')
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
+
+
 class BlogListSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     heading = serializers.CharField(source='title', read_only=True)
