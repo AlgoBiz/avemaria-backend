@@ -8,6 +8,7 @@ class Category(BaseModel):
     cover_image = models.ImageField(upload_to='categories/', null=True, blank=True)
     description = models.TextField(blank=True, null=True)
     order = models.PositiveIntegerField(default=0)
+    is_featured = models.BooleanField(default=False, help_text="Feature this category on homepage (max 5 allowed)")
 
     class Meta:
         verbose_name = 'Course Category'
@@ -15,6 +16,13 @@ class Category(BaseModel):
         ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
+        if self.is_featured:
+            featured_qs = Category.objects.filter(is_featured=True, is_deleted=False)
+            if self.pk:
+                featured_qs = featured_qs.exclude(pk=self.pk)
+            if featured_qs.count() >= 5:
+                from django.core.exceptions import ValidationError
+                raise ValidationError("Only 5 categories can be featured at a time.")
         if self.title:
             self.title = ' '.join(str(self.title).strip().split())
         if not self.slug:
