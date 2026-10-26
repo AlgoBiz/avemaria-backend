@@ -79,9 +79,9 @@ class Webinar(BaseModel):
         default='',
         help_text="Short summary / narrative description of the webinar/workshop"
     )
-    outline_agenda = models.TextField(
+    outline_agenda = models.JSONField(
         blank=True,
-        default='',
+        default=list,
         help_text="Detailed session agenda / outline or syllabus breakdown"
     )
     cover_image = models.ImageField(
