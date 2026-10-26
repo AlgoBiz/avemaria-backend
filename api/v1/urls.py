@@ -18,4 +18,5 @@ urlpatterns = [
     path('webinars/', include('api.v1.webinars.urls')),
     path('webinar/', include('api.v1.webinars.urls')),
     path('workshops/', include('api.v1.webinars.urls')),
+    path('payments/', include('api.v1.payments.urls')),
 ]

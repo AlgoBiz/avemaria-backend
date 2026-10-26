@@ -90,6 +90,11 @@ def organize_user_admin_tags(result, generator, request, public):
                 else:
                     new_tags.append('ADMIN SIDE - Resources')
 
+            # Payments & Stripe Checkout
+            elif path.startswith('/api/v1/payments/'):
+                new_tags.append('USER SIDE - Stripe Payments & Checkout')
+
+
             # 8. Blogs & Insights
             elif path.startswith('/api/v1/blog') or path.startswith('/api/v1/blogs'):
                 if method.lower() == 'get' and not path.endswith('/stats/'):
@@ -148,7 +153,9 @@ def organize_user_admin_tags(result, generator, request, public):
         ('USER SIDE - Student Portal & Profile', 'Student self-service portal, bio & personal details'),
         ('USER SIDE - Student Opted Courses', 'Course enrollments and opted course details for students'),
         ('USER SIDE - Student Resource Purchases', 'Digital learning resources, materials and purchases'),
+        ('USER SIDE - Stripe Payments & Checkout', 'Stripe checkout sessions, webhooks, transaction history & verification'),
         ('USER SIDE - Student Invoices & Payments', 'Student invoices, tax receipts and payment verification'),
+
         ('USER SIDE - Student Documents', 'Student document uploads, certificates and verification files'),
         ('USER SIDE - Courses', 'Public course catalog, syllabus, level and categories'),
         ('USER SIDE - Resources', 'Public catalog of available career and guidance study materials'),

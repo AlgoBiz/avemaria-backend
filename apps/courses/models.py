@@ -165,6 +165,12 @@ class CourseEnrollment(BaseModel):
         ('completed', 'Completed'),
         ('paused', 'Paused'),
     )
+    PAYMENT_STATUS_CHOICES = (
+        ('paid', 'Paid'),
+        ('pending', 'Pending'),
+        ('failed', 'Failed'),
+        ('refunded', 'Refunded'),
+    )
 
     student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='enrollments')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='enrollments')
@@ -172,11 +178,32 @@ class CourseEnrollment(BaseModel):
     progress_percentage = models.PositiveIntegerField(default=0, help_text="Completion percentage (0-100)")
     enrolled_at = models.DateTimeField(auto_now_add=True)
 
+    # Payment & Stripe tracking
+    payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUS_CHOICES, default='pending')
+    payment_method = models.CharField(max_length=50, blank=True, default='stripe', help_text="e.g. stripe, card, demo")
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    currency = models.CharField(max_length=10, default='£')
+    order_id = models.CharField(max_length=100, blank=True, default='', help_text="Stripe Session / Order Reference ID")
+
+    # Receipt / Invoice tracking
+    receipt_number = models.CharField(max_length=100, blank=True, default='', help_text="Invoice / Receipt Number")
+    receipt_emailed = models.BooleanField(default=False, help_text="Whether receipt email was sent")
+    receipt_emailed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         verbose_name = 'Course Enrollment'
         verbose_name_plural = 'Course Enrollments'
         unique_together = ('student', 'course')
         ordering = ['-enrolled_at', '-id']
 
+    def save(self, *args, **kwargs):
+        if not self.receipt_number and self.order_id:
+            self.receipt_number = self.order_id
+        super().save(*args, **kwargs)
+        if not self.receipt_number:
+            self.receipt_number = f"CR-INV-{self.id:05d}"
+            CourseEnrollment.objects.filter(id=self.id).update(receipt_number=self.receipt_number)
+
     def __str__(self):
         return f"{self.student.name} - {self.course.title} ({self.get_status_display()})"
+
