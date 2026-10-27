@@ -106,7 +106,7 @@ class Webinar(BaseModel):
     class Meta:
         verbose_name = 'Webinar / Workshop'
         verbose_name_plural = 'Webinars & Workshops'
-        ordering = ['-scheduled_date', '-created_at', '-id']
+        ordering = ['-created_at', '-id']
 
     def save(self, *args, **kwargs):
         if self.status in ['publish', 'published']:

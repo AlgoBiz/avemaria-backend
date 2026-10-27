@@ -16,6 +16,6 @@ class WebinarAdmin(admin.ModelAdmin):
     )
     list_filter = ('type', 'status', 'platform', 'scheduled_date', 'is_deleted')
     search_fields = ('title', 'summary_description', 'outline_agenda', 'speaker__name', 'platform')
-    ordering = ('-scheduled_date', '-created_at')
+    ordering = ('-created_at', '-id')
     prepopulated_fields = {'slug': ('title',)}
     autocomplete_fields = ['speaker']

@@ -117,7 +117,11 @@ class FacultyMinimalSerializer(serializers.ModelSerializer):
 
 
 class FacultyStatsSerializer(serializers.Serializer):
-    total = serializers.IntegerField()
-    published = serializers.IntegerField()
-    featured = serializers.IntegerField()
-    departments_count = serializers.IntegerField()
+    total_faculties = serializers.IntegerField(required=False)
+    active_faculties = serializers.IntegerField(required=False)
+    total_covered_courses = serializers.IntegerField(required=False)
+    total = serializers.IntegerField(required=False)
+    published = serializers.IntegerField(required=False)
+    featured = serializers.IntegerField(required=False)
+    departments_count = serializers.IntegerField(required=False)
+    stats = serializers.DictField(required=False)
