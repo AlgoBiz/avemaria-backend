@@ -15,6 +15,7 @@ from .serializers import (
     ResourcePDFUploadSerializer,
     ResourceCategorySerializer,
     ResourceCategoryCreateSerializer,
+    ResourceCategoryMinimalSerializer,
     ResourcePurchaseSerializer,
     StudentPurchaseHistorySerializer,
     StudentPaymentDetailItemSerializer,
@@ -74,7 +75,7 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [permissions.AllowAny()]
-        if self.action in ['categories', 'category_detail'] and self.request.method == 'GET':
+        if self.action in ['categories', 'category_detail', 'resource_categories_minimal'] and self.request.method == 'GET':
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -131,8 +132,11 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(resource).data)
 
     def perform_destroy(self, instance):
-        instance.is_deleted = True
-        instance.save(update_fields=['is_deleted'])
+        for pdf in instance.pdf_files.all():
+            if pdf.file:
+                pdf.file.delete(save=False)
+            pdf.delete()
+        instance.delete()
 
     @extend_schema(
         summary="Create resource",
@@ -183,6 +187,18 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
 
         categories = ResourceCategory.objects.filter(is_deleted=False)
         return Response(ResourceCategorySerializer(categories, many=True).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="List minimal resource categories without pagination",
+        description="Returns an unpaginated minimal list of resource categories (id, name, title, slug) for selectors.",
+        responses={200: ResourceCategoryMinimalSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='categories/minimal', pagination_class=None)
+    def resource_categories_minimal(self, request):
+        """Unpaginated minimal list of resource categories."""
+        categories = ResourceCategory.objects.filter(is_deleted=False)
+        serializer = ResourceCategoryMinimalSerializer(categories, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Create resource category",
@@ -255,8 +271,18 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             return Response(ResourceCategorySerializer(category).data)
 
         if request.method == 'DELETE':
-            category.is_deleted = True
-            category.save(update_fields=['is_deleted'])
+            # Cascade delete all resources under this category and their PDF files
+            resources = PaidResource.objects.filter(
+                models.Q(category__iexact=category.name) | models.Q(category__iexact=category.slug)
+            )
+            for res in resources:
+                for pdf in res.pdf_files.all():
+                    if pdf.file:
+                        pdf.file.delete(save=False)
+                    pdf.delete()
+                res.delete()
+
+            category.delete()
             return Response({'message': 'Resource category deleted successfully.'}, status=status.HTTP_204_NO_CONTENT)
 
 

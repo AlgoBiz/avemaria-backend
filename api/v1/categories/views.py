@@ -1,10 +1,16 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, filters, status
+from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.utils import extend_schema
 from apps.categories.models import Category
-from .serializers import CategorySerializer, CategoryListSerializer, CategoryCreateSerializer
+from .serializers import (
+    CategorySerializer,
+    CategoryListSerializer,
+    CategoryCreateSerializer,
+    CategoryMinimalSerializer,
+)
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.filter(is_deleted=False)
@@ -12,7 +18,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
     lookup_field = 'slug'
 
     def get_serializer_class(self):
-        if self.action == 'list':
+        if self.action == 'minimal':
+            return CategoryMinimalSerializer
+        if self.action in ['list', 'all_categories']:
             return CategoryListSerializer
         if self.action in ['create', 'create_category']:
             return CategoryCreateSerializer
@@ -44,7 +52,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return get_object_or_404(queryset, slug=lookup)
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'all_categories', 'minimal']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -63,3 +71,27 @@ class CategoryViewSet(viewsets.ModelViewSet):
     def create_category(self, request, *args, **kwargs):
         """Create category endpoint at /api/v1/courses/categories/create/"""
         return self.create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="List all categories without pagination",
+        description="Returns an unpaginated flat list of all active course categories for navigation, selectors and cards.",
+        responses={200: CategoryListSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='all', pagination_class=None)
+    def all_categories(self, request, *args, **kwargs):
+        """Unpaginated list of all active categories."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = CategoryListSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="List minimal course categories without pagination",
+        description="Returns an unpaginated minimal list of course categories (id, name, title, slug) for selectors and dropdowns.",
+        responses={200: CategoryMinimalSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='minimal', pagination_class=None)
+    def minimal(self, request, *args, **kwargs):
+        """Unpaginated minimal list of active course categories."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = CategoryMinimalSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)

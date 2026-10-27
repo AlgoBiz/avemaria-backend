@@ -6,7 +6,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 
 from apps.faculty.models import Faculty
-from .serializers import FacultySerializer, FacultyListSerializer, FacultyStatsSerializer
+from .serializers import FacultySerializer, FacultyListSerializer, FacultyStatsSerializer, FacultyMinimalSerializer
 
 
 class FacultyViewSet(viewsets.ModelViewSet):
@@ -52,7 +52,7 @@ class FacultyViewSet(viewsets.ModelViewSet):
         return qs.filter(is_published=True)
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve', 'stats']:
+        if self.action in ['list', 'retrieve', 'stats', 'minimal']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -109,3 +109,15 @@ class FacultyViewSet(viewsets.ModelViewSet):
             'featured': featured,
             'departments_count': departments_count
         })
+
+    @extend_schema(
+        summary="List minimal faculty members without pagination",
+        description="Returns an unpaginated minimal list of faculty members containing id, name, qualification, description, and image.",
+        responses={200: FacultyMinimalSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='minimal', pagination_class=None)
+    def minimal(self, request, *args, **kwargs):
+        """Unpaginated minimal faculty list (id, name, qualification, description, image)."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = FacultyMinimalSerializer(queryset, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)

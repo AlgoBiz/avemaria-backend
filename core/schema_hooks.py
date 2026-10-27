@@ -70,8 +70,8 @@ def organize_user_admin_tags(result, generator, request, public):
                 else:
                     new_tags.append('ADMIN SIDE - Enquiries & Leads')
 
-            # 6. Courses
-            elif path.startswith('/api/v1/courses/'):
+            # 6. Courses & Categories
+            elif path.startswith('/api/v1/courses/') or path.startswith('/api/v1/categories/'):
                 if method.lower() == 'get':
                     new_tags.append('USER SIDE - Courses')
                     new_tags.append('ADMIN SIDE - Courses')
