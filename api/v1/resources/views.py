@@ -1,6 +1,8 @@
 import uuid
 from django.db import models
 from django.shortcuts import get_object_or_404
+from django.http import Http404
+from django.utils.text import slugify
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -174,16 +176,11 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             category = serializer.save()
             return Response(ResourceCategoryCreateSerializer(category).data, status=status.HTTP_201_CREATED)
 
-        # GET: Seed default categories if none exist, then return all non-deleted
-        existing = ResourceCategory.objects.filter(is_deleted=False)
-        if not existing.exists():
+        # Optional manual re-seed via query param ?seed=true
+        if request.query_params.get('seed') in ['true', 'default', '1']:
             for name in ['Question Papers', 'Notes', 'Video Pack', 'Exam Blueprint', 'Mock Test Set']:
-                cat_obj = ResourceCategory.objects.filter(name__iexact=name).first()
-                if not cat_obj:
+                if not ResourceCategory.objects.filter(name__iexact=name).exists():
                     ResourceCategory.objects.create(name=name)
-                elif cat_obj.is_deleted:
-                    cat_obj.is_deleted = False
-                    cat_obj.save(update_fields=['is_deleted'])
 
         categories = ResourceCategory.objects.filter(is_deleted=False)
         return Response(ResourceCategorySerializer(categories, many=True).data, status=status.HTTP_200_OK)
@@ -246,17 +243,31 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             return self.create_resource_category(request)
 
         category = None
+        # 1. Try UUID
         try:
             val_uuid = uuid.UUID(str(cat_lookup))
             category = ResourceCategory.objects.filter(uuid=val_uuid, is_deleted=False).first()
         except (ValueError, TypeError, AttributeError):
             pass
 
+        # 2. Try numeric ID
         if category is None and cat_lookup and str(cat_lookup).isdigit():
             category = ResourceCategory.objects.filter(id=int(cat_lookup), is_deleted=False).first()
 
+        # 3. Try slug or name (case-insensitive and slugified)
+        if category is None and cat_lookup:
+            cleaned = str(cat_lookup).strip()
+            slugified = slugify(cleaned)
+            category = ResourceCategory.objects.filter(
+                models.Q(slug__iexact=cleaned) |
+                models.Q(name__iexact=cleaned) |
+                models.Q(slug__iexact=slugified) |
+                models.Q(name__iexact=slugified),
+                is_deleted=False
+            ).first()
+
         if category is None:
-            category = get_object_or_404(ResourceCategory, slug=cat_lookup, is_deleted=False)
+            raise Http404(f"Resource category '{cat_lookup}' not found.")
 
         if request.method == 'GET':
             return Response(ResourceCategorySerializer(category).data)

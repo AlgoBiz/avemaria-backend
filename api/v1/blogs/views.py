@@ -1,4 +1,6 @@
+import uuid
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from django.db.models import Count, Q
 from django.utils.text import slugify
 from rest_framework import viewsets, permissions, filters, status
@@ -55,8 +57,8 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
         return get_object_or_404(queryset, slug__iexact=lookup)
 
     def list(self, request, *args, **kwargs):
-        # Auto-seed default categories if empty
-        if not BlogCategory.objects.filter(is_deleted=False).exists():
+        # Optional manual seed via ?seed=true
+        if request.query_params.get('seed') in ['true', 'default', '1']:
             default_categories = [
                 'Exam Strategy', 'Career Pathways', 'Clinical Skills',
                 'Licensing Updates', 'Study Advice'
@@ -239,8 +241,8 @@ class BlogViewSet(viewsets.ModelViewSet):
             cat = serializer.save()
             return Response(BlogCategorySerializer(cat).data, status=status.HTTP_201_CREATED)
 
-        # Seed defaults if none exist
-        if not BlogCategory.objects.filter(is_deleted=False).exists():
+        # Optional manual seed via ?seed=true
+        if request.query_params.get('seed') in ['true', 'default', '1']:
             default_categories = [
                 'Exam Strategy', 'Career Pathways', 'Clinical Skills',
                 'Licensing Updates', 'Study Advice'
@@ -287,10 +289,25 @@ class BlogViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get', 'patch', 'put', 'delete'], url_path=r'categories/(?P<lookup>[^/.]+)')
     def category_detail(self, request, lookup=None):
         """Handles Edit and Delete for category pills at /api/v1/blogs/categories/<lookup>/"""
-        if lookup.isdigit():
-            category = get_object_or_404(BlogCategory, id=int(lookup), is_deleted=False)
-        else:
-            category = get_object_or_404(BlogCategory, slug__iexact=lookup, is_deleted=False)
+        category = None
+        try:
+            u = uuid.UUID(str(lookup))
+            category = BlogCategory.objects.filter(uuid=u, is_deleted=False).first()
+        except (ValueError, TypeError):
+            pass
+
+        if category is None and str(lookup).isdigit():
+            category = BlogCategory.objects.filter(id=int(lookup), is_deleted=False).first()
+
+        if category is None:
+            cleaned = str(lookup).strip()
+            category = BlogCategory.objects.filter(
+                Q(slug__iexact=cleaned) | Q(name__iexact=cleaned) | Q(slug__iexact=slugify(cleaned)),
+                is_deleted=False
+            ).first()
+
+        if category is None:
+            raise Http404(f"Blog category '{lookup}' not found.")
 
         if request.method == 'GET':
             return Response(BlogCategorySerializer(category).data)
