@@ -31,8 +31,8 @@ class WebinarViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['type', 'status', 'platform']
     search_fields = ['title', 'summary_description', 'outline_agenda', 'platform', 'speaker__name']
-    ordering_fields = ['scheduled_date', 'created_at', 'title', 'id']
-    ordering = ['-scheduled_date', '-created_at', '-id']
+    ordering_fields = ['created_at', 'scheduled_date', 'title', 'id']
+    ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
         if self.action == 'list':

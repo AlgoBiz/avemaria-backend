@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -6,6 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 
 from apps.faculty.models import Faculty
+from apps.courses.models import Course
 from .serializers import FacultySerializer, FacultyListSerializer, FacultyStatsSerializer, FacultyMinimalSerializer
 
 
@@ -22,6 +24,43 @@ class FacultyViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'title', 'qualification', 'department', 'bio']
     ordering_fields = ['created_at', 'display_order', 'name']
     ordering = ['-created_at', '-id']
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+
+        base_qs = Faculty.objects.filter(is_deleted=False)
+        total_faculties = base_qs.count()
+        active_faculties = base_qs.filter(
+            models.Q(status='active') | (models.Q(status='') & models.Q(is_active=True))
+        ).count()
+        total_covered_courses = Course.objects.filter(
+            models.Q(faculty__isnull=False) | (models.Q(faculty_name__isnull=False) & ~models.Q(faculty_name='')),
+            is_deleted=False
+        ).values('id').distinct().count()
+
+        stats_data = {
+            'total_faculties': total_faculties,
+            'active_faculties': active_faculties,
+            'total_covered_courses': total_covered_courses,
+        }
+
+        if isinstance(response.data, dict):
+            results = response.data.get('results')
+            if results is not None:
+                new_data = {}
+                for k in ['count', 'next', 'previous']:
+                    if k in response.data:
+                        new_data[k] = response.data[k]
+                new_data['stats'] = stats_data
+                new_data['results'] = results
+                for k, v in response.data.items():
+                    if k not in new_data:
+                        new_data[k] = v
+                response.data = new_data
+            else:
+                response.data['stats'] = stats_data
+
+        return response
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -98,16 +137,34 @@ class FacultyViewSet(viewsets.ModelViewSet):
     def stats(self, request):
         """Returns summary metrics for faculty management"""
         base_qs = Faculty.objects.filter(is_deleted=False)
-        total = base_qs.count()
+        total_faculties = base_qs.count()
+        active_faculties = base_qs.filter(
+            models.Q(status='active') | (models.Q(status='') & models.Q(is_active=True))
+        ).count()
         published = base_qs.filter(is_published=True).count()
         featured = base_qs.filter(is_featured=True).count()
         departments_count = base_qs.values('department').exclude(department='').distinct().count()
 
+        total_covered_courses = Course.objects.filter(
+            models.Q(faculty__isnull=False) | (models.Q(faculty_name__isnull=False) & ~models.Q(faculty_name='')),
+            is_deleted=False
+        ).values('id').distinct().count()
+
+        stats_dict = {
+            'total_faculties': total_faculties,
+            'active_faculties': active_faculties,
+            'total_covered_courses': total_covered_courses,
+        }
+
         return Response({
-            'total': total,
+            'total_faculties': total_faculties,
+            'active_faculties': active_faculties,
+            'total_covered_courses': total_covered_courses,
+            'total': total_faculties,
             'published': published,
             'featured': featured,
-            'departments_count': departments_count
+            'departments_count': departments_count,
+            'stats': stats_dict
         })
 
     @extend_schema(
