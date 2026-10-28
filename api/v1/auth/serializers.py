@@ -373,7 +373,7 @@ class StudentDocumentUploadResponseSerializer(serializers.Serializer):
 
 
 class StudentCourseEnrollSerializer(serializers.Serializer):
-    course_id = serializers.IntegerField(required=False, allow_null=True, help_text="ID of the course")
+    course_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, help_text="ID or UUID of the course")
     course_slug = serializers.CharField(required=False, allow_blank=True, help_text="Slug of the course")
 
 
@@ -389,7 +389,7 @@ class StudentCoursesListResponseSerializer(serializers.Serializer):
 
 
 class StudentResourcePurchaseSerializer(serializers.Serializer):
-    resource_id = serializers.IntegerField(required=False, allow_null=True, help_text="ID of the paid resource")
+    resource_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, help_text="ID or UUID of the paid resource")
     resource_slug = serializers.CharField(required=False, allow_blank=True, help_text="Slug of the paid resource")
     order_id = serializers.CharField(required=False, allow_blank=True, help_text="External checkout or transaction ID")
     amount_paid = serializers.DecimalField(required=False, max_digits=10, decimal_places=2, help_text="Amount paid")

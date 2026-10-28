@@ -330,12 +330,28 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['delete'], url_path='pdf/(?P<pdf_id>[^/.]+)', permission_classes=[permissions.IsAuthenticated])
     def delete_pdf(self, request, slug=None, pdf_id=None):
         resource = self.get_object()
+        pdf_id_str = str(pdf_id).strip() if pdf_id is not None else ''
+        pdf = None
+
         try:
-            pdf = resource.pdf_files.get(id=pdf_id)
-            pdf.delete()
-            return Response({'message': 'PDF deleted successfully.'}, status=status.HTTP_200_OK)
-        except ResourcePDF.DoesNotExist:
+            val_uuid = uuid.UUID(pdf_id_str)
+            pdf = resource.pdf_files.filter(uuid=val_uuid).first()
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+        if not pdf and pdf_id_str.isdigit():
+            pdf = resource.pdf_files.filter(id=int(pdf_id_str)).first()
+
+        if not pdf:
             return Response({'error': 'PDF not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if pdf.file:
+            try:
+                pdf.file.delete(save=False)
+            except Exception:
+                pass
+        pdf.delete()
+        return Response({'message': 'PDF deleted successfully.'}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="List student purchased resources",

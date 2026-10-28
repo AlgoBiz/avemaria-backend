@@ -34,6 +34,13 @@ class WebinarSerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     speaker = SpeakerNestedSerializer(read_only=True)
     speaker_id = serializers.CharField(write_only=True, required=False, allow_null=True)
+    scheduled_date = serializers.DateField(
+        format='%d/%m/%Y',
+        input_formats=['%d/%m/%Y', '%d/%m//%Y', '%Y-%m-%d', '%d-%m-%Y', '%Y/%m/%d'],
+        required=False,
+        allow_null=True
+    )
+    date = serializers.SerializerMethodField(read_only=True)
     cover_image = serializers.FileField(required=False, allow_null=True)
     cover_image_url = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     is_expired = serializers.BooleanField(read_only=True)
@@ -47,6 +54,7 @@ class WebinarSerializer(serializers.ModelSerializer):
             'title',
             'slug',
             'scheduled_date',
+            'date',
             'timing',
             'platform',
             'speaker',
@@ -64,10 +72,25 @@ class WebinarSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at'
         )
-        read_only_fields = ('id', 'slug', 'is_expired', 'event_status', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'date', 'is_expired', 'event_status', 'created_at', 'updated_at')
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_date(self, obj):
+        if obj.scheduled_date:
+            return obj.scheduled_date.strftime('%d/%m/%Y')
+        return None
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        # Ensure scheduled_date and date are in DD/MM/YYYY format
+        if instance.scheduled_date:
+            formatted_date = instance.scheduled_date.strftime('%d/%m/%Y')
+            ret['scheduled_date'] = formatted_date
+            ret['date'] = formatted_date
+        else:
+            ret['scheduled_date'] = None
+            ret['date'] = None
+
         # Ensure cover_image URL is absolute in representation
         if instance.cover_image:
             request = self.context.get('request')
@@ -178,18 +201,28 @@ class WebinarSerializer(serializers.ModelSerializer):
                     mutable_data['cover_image_url'] = mutable_data[alias]
                     break
 
-        # Parse scheduled_date formats
+        # Aliases for scheduled_date (e.g. 'date', 'event_date', 'session_date')
+        if not mutable_data.get('scheduled_date'):
+            for alias in ['date', 'event_date', 'session_date', 'webinar_date']:
+                if mutable_data.get(alias):
+                    mutable_data['scheduled_date'] = mutable_data[alias]
+                    break
+
+        # Parse scheduled_date formats with support for DD/MM/YYYY and DD/MM//YYYY
         pdate = mutable_data.get('scheduled_date')
         if pdate and isinstance(pdate, str):
             pdate_str = pdate.strip()
             # If ISO datetime with 'T', extract the date portion
             if 'T' in pdate_str:
                 pdate_str = pdate_str.split('T')[0]
-            formats = ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d %B %Y', '%d %b %Y', '%B %d, %Y', '%Y/%m/%d')
+            # Normalize multiple consecutive slashes (e.g. '15/11//2026' or 'dd/mm//yyyy') to single slash
+            import re
+            cleaned_pdate_str = re.sub(r'/+', '/', pdate_str)
+            formats = ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d %B %Y', '%d %b %Y', '%B %d, %Y', '%Y/%m/%d')
             for fmt in formats:
                 try:
-                    dt = datetime.datetime.strptime(pdate_str, fmt)
-                    mutable_data['scheduled_date'] = dt.date().isoformat()
+                    dt = datetime.datetime.strptime(cleaned_pdate_str, fmt)
+                    mutable_data['scheduled_date'] = dt.date().strftime('%d/%m/%Y')
                     break
                 except ValueError:
                     continue
@@ -291,6 +324,8 @@ class WebinarListSerializer(serializers.ModelSerializer):
     """
     id = serializers.CharField(source='uuid_str', read_only=True)
     speaker = SpeakerNestedSerializer(read_only=True)
+    scheduled_date = serializers.DateField(format='%d/%m/%Y', required=False, allow_null=True)
+    date = serializers.SerializerMethodField(read_only=True)
     cover_image = serializers.SerializerMethodField()
     is_expired = serializers.BooleanField(read_only=True)
     event_status = serializers.CharField(read_only=True)
@@ -303,6 +338,7 @@ class WebinarListSerializer(serializers.ModelSerializer):
             'title',
             'slug',
             'scheduled_date',
+            'date',
             'timing',
             'platform',
             'speaker',
@@ -319,6 +355,13 @@ class WebinarListSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at'
         )
+        read_only_fields = ('id', 'slug', 'date', 'is_expired', 'event_status', 'created_at', 'updated_at')
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_date(self, obj):
+        if obj.scheduled_date:
+            return obj.scheduled_date.strftime('%d/%m/%Y')
+        return None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_cover_image(self, obj):
@@ -331,6 +374,15 @@ class WebinarListSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
+        # Ensure scheduled_date and date are in DD/MM/YYYY format
+        if instance.scheduled_date:
+            formatted_date = instance.scheduled_date.strftime('%d/%m/%Y')
+            ret['scheduled_date'] = formatted_date
+            ret['date'] = formatted_date
+        else:
+            ret['scheduled_date'] = None
+            ret['date'] = None
+
         if hasattr(instance, 'uuid'):
             ret['id'] = str(instance.uuid)
         if ret.get('status') in ['publish', 'published']:

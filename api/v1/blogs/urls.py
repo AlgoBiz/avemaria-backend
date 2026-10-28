@@ -7,7 +7,9 @@ router.register(r'categories', BlogCategoryViewSet, basename='blog-categories')
 router.register(r'', BlogViewSet, basename='blog')
 
 urlpatterns = [
-    re_path(r'^categories/(?P<pk>[^/.]+)/?$', BlogCategoryViewSet.as_view({
+    re_path(r'^categories/create/?$', BlogCategoryViewSet.as_view({'post': 'create_category'}), name='blog-category-create'),
+    re_path(r'^categories/minimal/?$', BlogCategoryViewSet.as_view({'get': 'minimal'}), name='blog-category-minimal'),
+    re_path(r'^categories/(?P<pk>(?!create$|minimal$)[^/.]+)/?$', BlogCategoryViewSet.as_view({
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',

@@ -1,4 +1,5 @@
 import uuid
+import datetime
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import models
@@ -152,6 +153,19 @@ class WebinarViewSet(viewsets.ModelViewSet):
             qs = qs.filter(scheduled_date__lt=today)
         elif past_param and past_param.strip().lower() in ['false', '0', 'no']:
             qs = qs.filter(models.Q(scheduled_date__gte=today) | models.Q(scheduled_date__isnull=True))
+
+        # Filter by specific date / scheduled_date (?date=15/11/2026 or ?scheduled_date=15/11/2026 or ?date=15/11//2026)
+        date_param = self.request.query_params.get('date') or self.request.query_params.get('scheduled_date')
+        if date_param and date_param.strip().lower() != 'all':
+            import re
+            cleaned_d = re.sub(r'/+', '/', date_param.strip())
+            for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%Y/%m/%d'):
+                try:
+                    parsed_d = datetime.datetime.strptime(cleaned_d, fmt).date()
+                    qs = qs.filter(scheduled_date=parsed_d)
+                    break
+                except ValueError:
+                    continue
 
         return qs
 
