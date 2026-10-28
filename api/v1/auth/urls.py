@@ -76,19 +76,19 @@ urlpatterns = [
     # Student Opted Courses Endpoints
     path('student/courses/', StudentCoursesView.as_view(), name='student_courses'),
     path('student/courses/enroll/', StudentCourseEnrollView.as_view(), name='student_course_enroll'),
-    path('student/courses/<int:course_id>/', StudentCourseDropView.as_view(), name='student_course_drop'),
+    path('student/courses/<str:course_id>/', StudentCourseDropView.as_view(), name='student_course_drop'),
 
     # Student Purchased Resources Endpoints
     path('student/resources/', StudentPurchasedResourcesView.as_view(), name='student_resources'),
-    path('student/resources/<int:pk>/', StudentPurchasedResourceDetailView.as_view(), name='student_resource_detail'),
+    path('student/resources/<str:pk>/', StudentPurchasedResourceDetailView.as_view(), name='student_resource_detail'),
     path('student/resources/purchase/', StudentResourcePurchaseView.as_view(), name='student_resource_purchase'),
-    path('student/resources/<int:resource_id>/access/', StudentResourceAccessView.as_view(), name='student_resource_access'),
+    path('student/resources/<str:resource_id>/access/', StudentResourceAccessView.as_view(), name='student_resource_access'),
 
     # Student Purchase History Endpoints
     path('student/purchase-history/', StudentPurchaseHistoryView.as_view(), name='student_purchase_history'),
-    path('student/purchase-history/<int:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchase_history_detail'),
+    path('student/purchase-history/<str:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchase_history_detail'),
     path('student/purchases/', StudentPurchaseHistoryView.as_view(), name='student_purchases'),
-    path('student/purchases/<int:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchases_detail'),
+    path('student/purchases/<str:purchase_id>/', StudentPurchaseHistoryDetailView.as_view(), name='student_purchases_detail'),
 
     # Student Payment Details Endpoints
     path('student/payments/', StudentPaymentDetailsView.as_view(), name='student_payments'),
@@ -96,10 +96,10 @@ urlpatterns = [
 
     # Student Invoices / Receipts Endpoints
     path('student/receipts/', StudentReceiptsView.as_view(), name='student_receipts'),
-    path('student/receipts/<int:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_receipt_detail'),
+    path('student/receipts/<str:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_receipt_detail'),
     path('student/invoices/', StudentReceiptsView.as_view(), name='student_invoices'),
-    path('student/invoices/<int:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_invoice_detail'),
-    path('student/receipts/<int:purchase_id>/resend/', StudentReceiptResendView.as_view(), name='student_receipt_resend'),
+    path('student/invoices/<str:purchase_id>/', StudentReceiptDetailView.as_view(), name='student_invoice_detail'),
+    path('student/receipts/<str:purchase_id>/resend/', StudentReceiptResendView.as_view(), name='student_receipt_resend'),
 ]
 
 

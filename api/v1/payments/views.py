@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 import stripe
 from decimal import Decimal
 from django.conf import settings
@@ -269,6 +270,12 @@ class CreateCheckoutSessionView(APIView):
             if item_lookup.isdigit():
                 item_obj = Course.objects.filter(id=int(item_lookup), is_deleted=False).first()
             if not item_obj:
+                try:
+                    c_uuid = uuid.UUID(item_lookup)
+                    item_obj = Course.objects.filter(uuid=c_uuid, is_deleted=False).first()
+                except (ValueError, TypeError, AttributeError):
+                    pass
+            if not item_obj:
                 item_obj = Course.objects.filter(slug=item_lookup, is_deleted=False).first()
 
             if not item_obj:
@@ -292,6 +299,12 @@ class CreateCheckoutSessionView(APIView):
         elif item_type == 'resource':
             if item_lookup.isdigit():
                 item_obj = PaidResource.objects.filter(id=int(item_lookup), is_deleted=False).first()
+            if not item_obj:
+                try:
+                    r_uuid = uuid.UUID(item_lookup)
+                    item_obj = PaidResource.objects.filter(uuid=r_uuid, is_deleted=False).first()
+                except (ValueError, TypeError, AttributeError):
+                    pass
             if not item_obj:
                 item_obj = PaidResource.objects.filter(slug=item_lookup, is_deleted=False).first()
 

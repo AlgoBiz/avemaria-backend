@@ -1775,6 +1775,64 @@ class StudentCoursesView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def _resolve_course(identifier):
+    """Resolves a Course instance by integer ID, UUID string, or slug."""
+    if not identifier:
+        return None
+    val_str = str(identifier).strip()
+    if val_str.isdigit():
+        c = Course.objects.filter(id=int(val_str), is_published=True, is_deleted=False).first()
+        if c:
+            return c
+    try:
+        val_uuid = uuid.UUID(val_str)
+        c = Course.objects.filter(uuid=val_uuid, is_published=True, is_deleted=False).first()
+        if c:
+            return c
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return Course.objects.filter(slug=val_str, is_published=True, is_deleted=False).first()
+
+
+def _resolve_paid_resource(identifier):
+    """Resolves a PaidResource instance by integer ID, UUID string, or slug."""
+    if not identifier:
+        return None
+    val_str = str(identifier).strip()
+    if val_str.isdigit():
+        r = PaidResource.objects.filter(id=int(val_str), is_active=True, is_deleted=False).first()
+        if r:
+            return r
+    try:
+        val_uuid = uuid.UUID(val_str)
+        r = PaidResource.objects.filter(uuid=val_uuid, is_active=True, is_deleted=False).first()
+        if r:
+            return r
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return PaidResource.objects.filter(slug=val_str, is_active=True, is_deleted=False).first()
+
+
+def _resolve_purchase_query(identifier):
+    """
+    Returns a Q object to match a ResourcePurchase by:
+    - id (if numeric) or resource_id (if numeric)
+    - uuid (if UUID) or resource__uuid (if UUID)
+    - order_id, receipt_number, or resource__slug (if string)
+    """
+    if not identifier:
+        return Q(id__isnull=True)
+    val_str = str(identifier).strip()
+    if val_str.isdigit():
+        val_int = int(val_str)
+        return Q(id=val_int) | Q(resource_id=val_int)
+    try:
+        val_uuid = uuid.UUID(val_str)
+        return Q(uuid=val_uuid) | Q(resource__uuid=val_uuid)
+    except (ValueError, TypeError, AttributeError):
+        return Q(order_id=val_str) | Q(receipt_number=val_str) | Q(resource__slug=val_str)
+
+
 class StudentCourseEnrollView(APIView):
     """
     Allows a student to opt into / enroll in a course.
@@ -1812,11 +1870,7 @@ class StudentCourseEnrollView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        course = None
-        if course_id:
-            course = Course.objects.filter(id=course_id, is_published=True, is_deleted=False).first()
-        elif course_slug:
-            course = Course.objects.filter(slug=course_slug, is_published=True, is_deleted=False).first()
+        course = _resolve_course(course_id) or _resolve_course(course_slug)
 
         if not course:
             return Response(
@@ -1870,7 +1924,12 @@ class StudentCourseDropView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        enrollment = CourseEnrollment.objects.filter(student=student, course_id=course_id).first()
+        course = _resolve_course(course_id)
+        if not course:
+            enrollment = None
+        else:
+            enrollment = CourseEnrollment.objects.filter(student=student, course=course).first()
+
         if not enrollment:
             return Response({"detail": "You are not enrolled in this course."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1946,10 +2005,11 @@ class StudentPurchasedResourceDetailView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        query = _resolve_purchase_query(pk)
         purchase = ResourcePurchase.objects.filter(
             student=student,
             is_deleted=False
-        ).filter(Q(id=pk) | Q(resource_id=pk)).select_related('resource').prefetch_related('resource__pdf_files').first()
+        ).filter(query).select_related('resource').prefetch_related('resource__pdf_files').first()
 
         if not purchase:
             return Response({"detail": "Purchased resource not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1995,11 +2055,7 @@ class StudentResourcePurchaseView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        resource = None
-        if resource_id:
-            resource = PaidResource.objects.filter(id=resource_id, is_active=True, is_deleted=False).first()
-        elif resource_slug:
-            resource = PaidResource.objects.filter(slug=resource_slug, is_active=True, is_deleted=False).first()
+        resource = _resolve_paid_resource(resource_id) or _resolve_paid_resource(resource_slug)
 
         if not resource:
             return Response(
@@ -2071,12 +2127,12 @@ class StudentResourceAccessView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        query = _resolve_purchase_query(resource_id)
         purchase = ResourcePurchase.objects.filter(
             student=student,
-            resource_id=resource_id,
             is_deleted=False,
             status='active'
-        ).select_related('resource').prefetch_related('resource__pdf_files').first()
+        ).filter(query).select_related('resource').prefetch_related('resource__pdf_files').first()
 
         if not purchase:
             return Response(
@@ -2174,11 +2230,11 @@ class StudentPurchaseHistoryDetailView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        query = _resolve_purchase_query(purchase_id)
         purchase = ResourcePurchase.objects.filter(
             student=student,
-            id=purchase_id,
             is_deleted=False
-        ).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
+        ).filter(query).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
 
         if not purchase:
             return Response({"detail": "Purchase not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2205,11 +2261,11 @@ class StudentReceiptDetailView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        query = _resolve_purchase_query(purchase_id)
         purchase = ResourcePurchase.objects.filter(
             student=student,
-            id=purchase_id,
             is_deleted=False
-        ).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
+        ).filter(query).select_related('resource', 'student', 'student__user').prefetch_related('resource__pdf_files').first()
 
         if not purchase:
             return Response({"detail": "Receipt not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2320,11 +2376,11 @@ class StudentReceiptResendView(APIView):
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        query = _resolve_purchase_query(purchase_id)
         purchase = ResourcePurchase.objects.filter(
             student=student,
-            id=purchase_id,
             is_deleted=False
-        ).select_related('resource').first()
+        ).filter(query).select_related('resource').first()
 
         if not purchase:
             return Response({"detail": "Receipt not found."}, status=status.HTTP_404_NOT_FOUND)
