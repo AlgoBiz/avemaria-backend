@@ -177,12 +177,13 @@ class ResourcePDFSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ResourcePDF
-        fields = ('id', 'file', 'file_size', 'uploaded_at', 'created_at')
+        fields = ('id', 'title', 'file', 'file_size', 'uploaded_at', 'created_at')
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         if hasattr(instance, 'uuid'):
             ret['id'] = str(instance.uuid)
+        ret['title'] = getattr(instance, 'title', None) or (instance.file.name.split('/')[-1] if getattr(instance, 'file', None) else '')
         return ret
 
 
@@ -384,14 +385,22 @@ class PaidResourceSerializer(serializers.ModelSerializer):
 
 
 class ResourcePDFUploadSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     uploaded_at = serializers.DateTimeField(source='created_at', read_only=True)
 
     class Meta:
         model = ResourcePDF
         fields = ('id', 'resource', 'file', 'title', 'file_size', 'is_active', 'uploaded_at')
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
+
 
 class ResourcePurchaseFileSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     file_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -406,6 +415,12 @@ class ResourcePurchaseFileSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.file.url)
             return obj.file.url
         return None
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
 
 
 class ResourcePurchaseSerializer(serializers.ModelSerializer):
@@ -463,6 +478,7 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
 
 
 class StudentPurchasedResourceFileSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     file = serializers.SerializerMethodField()
 
     class Meta:
@@ -477,6 +493,12 @@ class StudentPurchasedResourceFileSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.file.url)
             return obj.file.url
         return None
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        return ret
 
 
 class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):

@@ -40,13 +40,14 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_object(self):
-        lookup = self.kwargs.get('pk')
+        lookup = self.kwargs.get('pk') or self.kwargs.get('lookup')
         queryset = self.filter_queryset(self.get_queryset())
         if lookup is not None:
             l_str = str(lookup).strip()
             if l_str.isdigit():
-                return get_object_or_404(queryset, pk=int(l_str))
-            import uuid
+                obj = queryset.filter(pk=int(l_str)).first()
+                if obj:
+                    return obj
             try:
                 u = uuid.UUID(l_str)
                 obj = queryset.filter(uuid=u).first()
@@ -54,7 +55,12 @@ class BlogCategoryViewSet(viewsets.ModelViewSet):
                     return obj
             except (ValueError, TypeError):
                 pass
-        return get_object_or_404(queryset, slug__iexact=lookup)
+            obj = queryset.filter(
+                Q(slug__iexact=l_str) | Q(name__iexact=l_str) | Q(slug__iexact=slugify(l_str))
+            ).first()
+            if obj:
+                return obj
+        raise Http404(f"Blog category '{lookup}' not found.")
 
     def list(self, request, *args, **kwargs):
         # Optional manual seed via ?seed=true

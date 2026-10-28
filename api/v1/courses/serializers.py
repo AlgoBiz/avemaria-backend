@@ -1,6 +1,7 @@
 import uuid
 from collections import OrderedDict
 from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.courses.models import Course
@@ -31,6 +32,88 @@ def _clean_faculty_name_and_qual(faculty_obj, stored_name, stored_qual, stored_t
             pass
 
     return name, qual
+
+
+def _normalize_faqs(raw_faqs):
+    """
+    Normalizes a list of FAQ dictionaries.
+    Prioritizes user-entered 'q' / 'a' over placeholder/dummy 'question' / 'answer' keys,
+    and supplies both ('question', 'answer') and ('q', 'a') for seamless frontend/backend compatibility.
+    """
+    if not raw_faqs or not isinstance(raw_faqs, list):
+        return []
+    cleaned = []
+    for item in raw_faqs:
+        if isinstance(item, dict):
+            q_val = str(item.get('q') or item.get('question') or '').strip()
+            a_val = str(item.get('a') or item.get('answer') or '').strip()
+            if q_val or a_val:
+                cleaned.append({
+                    'question': q_val,
+                    'answer': a_val,
+                    'q': q_val,
+                    'a': a_val,
+                })
+        elif isinstance(item, str) and item.strip():
+            cleaned.append({
+                'question': item.strip(),
+                'answer': '',
+                'q': item.strip(),
+                'a': '',
+            })
+    return cleaned
+
+
+def _normalize_schedule_details_to_array(raw_val):
+    """
+    Parses and returns schedule_details as a clean list of milestone/timeline items:
+    [{'when': 'Weeks 1-5', 'what': '...'}]
+    Supports both raw strings (JSON-encoded), dictionaries containing 'timeline'/'milestones',
+    or pre-parsed lists.
+    """
+    if not raw_val:
+        return []
+
+    data = raw_val
+    if isinstance(data, str):
+        s = data.strip()
+        if not s:
+            return []
+        try:
+            import json
+            data = json.loads(s)
+        except Exception:
+            return [{'when': '', 'what': s}]
+
+    if isinstance(data, dict):
+        timeline = data.get('timeline') or data.get('milestones') or data.get('schedule') or data.get('items')
+        if isinstance(timeline, list):
+            data = timeline
+        elif data.get('what') or data.get('when'):
+            data = [data]
+        else:
+            narrative = data.get('narrative') or data.get('summary') or ''
+            return [{'when': '', 'what': narrative}] if narrative else []
+
+    if isinstance(data, list):
+        cleaned = []
+        for item in data:
+            if isinstance(item, dict):
+                when_val = str(item.get('when') or item.get('time') or item.get('period') or item.get('week') or '').strip()
+                what_val = str(item.get('what') or item.get('topic') or item.get('activity') or item.get('description') or '').strip()
+                if when_val or what_val:
+                    cleaned.append({
+                        'when': when_val,
+                        'what': what_val
+                    })
+            elif isinstance(item, str) and item.strip():
+                cleaned.append({
+                    'when': '',
+                    'what': item.strip()
+                })
+        return cleaned
+
+    return []
 
 
 class CourseListSerializer(serializers.ModelSerializer):
@@ -148,6 +231,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     meta_keywords = serializers.JSONField(required=False, default=list)
     curriculum = serializers.JSONField(required=False, default=list)
     faqs = serializers.JSONField(required=False, default=list)
+    schedule_details = serializers.JSONField(required=False, default=list)
     fee_formatted = serializers.SerializerMethodField()
     schedule_display = serializers.SerializerMethodField()
     faculty_display = serializers.SerializerMethodField()
@@ -255,6 +339,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
         ordered_ret['status'] = instance.status or ('published' if instance.is_published else 'draft')
+        ordered_ret['faqs'] = _normalize_faqs(getattr(instance, 'faqs', []))
+        ordered_ret['schedule_details'] = _normalize_schedule_details_to_array(getattr(instance, 'schedule_details', None))
 
         # Prefer live FK faculty data over stale snapshot fields
         faculty_name, faculty_qualification = _clean_faculty_name_and_qual(
@@ -294,6 +380,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
     meta_keywords = serializers.JSONField(required=False, default=list)
     curriculum = serializers.JSONField(required=False, default=list)
     faqs = serializers.JSONField(required=False, default=list)
+    schedule_details = serializers.JSONField(required=False, default=list)
     status = serializers.ChoiceField(choices=['published', 'draft'], default='published', required=False)
 
     class Meta:
@@ -595,7 +682,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                 data['faculty'] = default_faculty.id
                 data['faculty_name'] = default_faculty.name
 
-        # 12. Schedule & Commitment aliases
+        # 12. Schedule & Commitment aliases & auto-serialization
         if not data.get('weekly_session_commitment'):
             for alias in ['weekly_commitment', 'session_commitment', 'commitment']:
                 if data.get(alias):
@@ -603,10 +690,14 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                     break
 
         if not data.get('schedule_details'):
-            for alias in ['schedule_summary_narrative', 'schedule_summary', 'schedule_narrative']:
+            for alias in ['schedule_summary_narrative', 'schedule_summary', 'schedule_narrative', 'schedule', 'timeline', 'milestones']:
                 if data.get(alias):
                     data['schedule_details'] = data[alias]
                     break
+
+        if data.get('schedule_details') and isinstance(data['schedule_details'], (dict, list)):
+            import json
+            data['schedule_details'] = json.dumps(data['schedule_details'])
 
         # 13. Outcomes alias
         if not data.get('course_outcomes'):
@@ -615,24 +706,79 @@ class CourseWriteSerializer(serializers.ModelSerializer):
                     data['course_outcomes'] = data[alias]
                     break
 
-        # 14. Curriculum alias
+        # 14. Curriculum alias & topic normalization
         if not data.get('curriculum'):
-            for alias in ['modules', 'syllabus']:
+            for alias in ['modules', 'syllabus', 'curriculum_topics', 'topics_list']:
                 if data.get(alias):
                     data['curriculum'] = data[alias]
                     break
 
-        # 15. FAQs alias
+        if data.get('curriculum') and isinstance(data['curriculum'], list):
+            cleaned_curriculum = []
+            for item in data['curriculum']:
+                if isinstance(item, dict):
+                    m_name = str(item.get('module') or item.get('title') or item.get('name') or '').strip()
+                    t_val = str(item.get('topics') or item.get('topic') or item.get('description') or '').strip()
+                    if m_name or t_val:
+                        cleaned_curriculum.append({
+                            'module': m_name,
+                            'topics': t_val,
+                            'topic': t_val,
+                        })
+                elif isinstance(item, str) and item.strip():
+                    cleaned_curriculum.append({
+                        'module': item.strip(),
+                        'topics': '',
+                        'topic': '',
+                    })
+            data['curriculum'] = cleaned_curriculum
+
+        # 15. FAQs alias & normalization
         if not data.get('faqs') and data.get('faq'):
             data['faqs'] = data['faq']
+        if 'faqs' in data:
+            data['faqs'] = _normalize_faqs(data.get('faqs'))
 
         return super().to_internal_value(data)
 
     def validate(self, attrs):
-        if not attrs.get('category') and not (self.instance and self.instance.category_id):
+        category_obj = attrs.get('category') or (self.instance and self.instance.category)
+        if not category_obj:
             raise serializers.ValidationError({
                 'category': 'Course category is required. A category must be created or selected before adding a course.'
             })
+
+        title = attrs.get('title') or (self.instance and self.instance.title)
+        if not title or not str(title).strip():
+            raise serializers.ValidationError({
+                'title': 'Course title is required.'
+            })
+
+        cleaned_title = ' '.join(str(title).strip().split())
+        attrs['title'] = cleaned_title
+
+        category_id = getattr(category_obj, 'id', category_obj)
+        cat_slug = slugify(cleaned_title)
+
+        existing_qs = Course.objects.filter(
+            category_id=category_id,
+            is_deleted=False
+        ).filter(
+            models.Q(title__iexact=cleaned_title) | models.Q(slug__iexact=cat_slug)
+        )
+
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        if existing_qs.exists():
+            category_title = getattr(category_obj, 'title', None)
+            if not category_title and isinstance(category_id, int):
+                category_title = Category.objects.filter(id=category_id).values_list('title', flat=True).first()
+            cat_display = f"'{category_title}'" if category_title else "this category"
+            raise serializers.ValidationError({
+                'title': f"A course with the title '{cleaned_title}' already exists in {cat_display}."
+            })
+
         return attrs
 
     def to_representation(self, instance):
@@ -700,14 +846,14 @@ class CourseWriteSerializer(serializers.ModelSerializer):
             ('course_outcomes', instance.course_outcomes or []),
             ('curriculum', instance.curriculum or []),
             ('weekly_session_commitment', instance.weekly_session_commitment or ''),
-            ('schedule_details', instance.schedule_details or ''),
+            ('schedule_details', _normalize_schedule_details_to_array(instance.schedule_details)),
             ('faculty', faculty_list),
             ('faculty_name', (instance.faculty.name if instance.faculty else '') or instance.faculty_name or ''),
             ('faculty_qualification', (instance.faculty.qualification if instance.faculty else '') or instance.faculty_qualification or ''),
             ('faculty_title', (instance.faculty.title if instance.faculty else '') or instance.faculty_title or ''),
             ('faculty_experience', (instance.faculty.experience if instance.faculty else '') or instance.faculty_experience or ''),
             ('faculty_bio', (instance.faculty.bio if instance.faculty else '') or instance.faculty_bio or ''),
-            ('faqs', instance.faqs or []),
+            ('faqs', _normalize_faqs(instance.faqs or [])),
             ('meta_description', instance.meta_description or ''),
             ('meta_keywords', instance.meta_keywords or []),
             ('modules_count', instance.modules_count),
