@@ -391,12 +391,29 @@ class BlogDetailSerializer(serializers.ModelSerializer):
         return super().to_internal_value(mutable_data)
 
     def validate(self, attrs):
-        if not attrs.get('title') and not (self.instance and self.instance.title):
+        title = attrs.get('title') or (self.instance and self.instance.title)
+        if not title or not str(title).strip():
             raise serializers.ValidationError({'heading': 'Heading (Article Title) is required.'})
         if not attrs.get('sub_heading') and not (self.instance and self.instance.sub_heading):
             raise serializers.ValidationError({'subheading': 'Subheading (Overview / Excerpt) is required.'})
         if not attrs.get('category') and not (self.instance and self.instance.category):
             raise serializers.ValidationError({'category': 'Blog category is required. A category must be created or selected before adding a blog article.'})
+
+        cleaned_title = ' '.join(str(title).strip().split())
+        attrs['title'] = cleaned_title
+
+        title_slug = slugify(cleaned_title)
+        existing_qs = Blog.objects.filter(is_deleted=False).filter(
+            models.Q(title__iexact=cleaned_title) | models.Q(slug__iexact=title_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        if existing_qs.exists():
+            raise serializers.ValidationError({
+                'heading': f"A blog article with the title '{cleaned_title}' already exists."
+            })
+
         return attrs
 
     def _extract_publish_date(self, data):

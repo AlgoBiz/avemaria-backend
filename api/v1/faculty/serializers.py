@@ -1,3 +1,5 @@
+from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.faculty.models import Faculty
@@ -36,6 +38,47 @@ class FacultySerializer(serializers.ModelSerializer):
             'updated_at'
         )
         read_only_fields = ('id', 'slug', 'faculty_display', 'initials', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        # 1. Validate Name Uniqueness
+        name = attrs.get('name') or (self.instance and self.instance.name)
+        if not name or not str(name).strip():
+            raise serializers.ValidationError({'name': 'Faculty name is required.'})
+
+        cleaned_name = ' '.join(str(name).strip().split())
+        attrs['name'] = cleaned_name
+
+        name_slug = slugify(cleaned_name)
+        name_qs = Faculty.objects.filter(is_deleted=False).filter(
+            models.Q(name__iexact=cleaned_name) | models.Q(slug__iexact=name_slug)
+        )
+        if self.instance:
+            name_qs = name_qs.exclude(pk=self.instance.pk)
+
+        if name_qs.exists():
+            raise serializers.ValidationError({
+                'name': f"A faculty member with the name '{cleaned_name}' already exists."
+            })
+
+        # 2. Validate Email Uniqueness (if email is provided)
+        email = attrs.get('email') or (self.instance and self.instance.email)
+        if email and str(email).strip():
+            cleaned_email = str(email).strip().lower()
+            attrs['email'] = cleaned_email
+
+            email_qs = Faculty.objects.filter(
+                email__iexact=cleaned_email,
+                is_deleted=False
+            )
+            if self.instance:
+                email_qs = email_qs.exclude(pk=self.instance.pk)
+
+            if email_qs.exists():
+                raise serializers.ValidationError({
+                    'email': f"A faculty member with the email '{cleaned_email}' already exists."
+                })
+
+        return attrs
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)

@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import uuid
@@ -210,8 +211,8 @@ class PaymentConfigView(APIView):
     )
     def get(self, request):
         return Response({
-            'publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', ''),
-            'currency': getattr(settings, 'STRIPE_CURRENCY', 'gbp').lower(),
+            'publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or os.getenv('STRIPE_PUBLISHABLE_KEY', ''),
+            'currency': (getattr(settings, 'STRIPE_CURRENCY', '') or os.getenv('STRIPE_CURRENCY', 'gbp')).lower(),
         }, status=status.HTTP_200_OK)
 
 
@@ -249,7 +250,7 @@ class CreateCheckoutSessionView(APIView):
                 defaults={'user': request.user, 'name': request.user.display_name, 'status': 'active'}
             )
 
-        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', '')
+        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', '') or os.getenv('STRIPE_SECRET_KEY', '')
         if not stripe_secret:
             return Response(
                 {"detail": "Stripe secret key is not configured on the server. Please check .env settings."},
@@ -386,7 +387,7 @@ class CreateCheckoutSessionView(APIView):
             return Response({
                 'checkout_url': checkout_session.url,
                 'session_id': checkout_session.id,
-                'publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', ''),
+                'publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or os.getenv('STRIPE_PUBLISHABLE_KEY', ''),
                 'item_type': item_type,
                 'item_id': item_obj.id,
                 'item_title': item_title,
@@ -431,7 +432,7 @@ class StripeWebhookView(APIView):
     def post(self, request):
         payload = request.body
         sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-        webhook_secret = getattr(settings, 'STRIPE_WEBHOOK_SECRET', '')
+        webhook_secret = getattr(settings, 'STRIPE_WEBHOOK_SECRET', '') or os.getenv('STRIPE_WEBHOOK_SECRET', '')
 
         event = None
 
@@ -499,7 +500,7 @@ class VerifySessionView(APIView):
         if not session_id:
             return Response({"detail": "Parameter 'session_id' is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', '')
+        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', '') or os.getenv('STRIPE_SECRET_KEY', '')
         if not stripe_secret:
             return Response(
                 {"detail": "Stripe is not configured on the server."},
