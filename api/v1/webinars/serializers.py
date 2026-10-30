@@ -1,5 +1,7 @@
 import uuid
 import datetime
+from django.db import models
+from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 
@@ -238,6 +240,28 @@ class WebinarSerializer(serializers.ModelSerializer):
         if value not in [Webinar.STATUS_PUBLISHED, Webinar.STATUS_DRAFT, 'publish']:
             raise serializers.ValidationError(f"Status must be either '{Webinar.STATUS_PUBLISHED}' or '{Webinar.STATUS_DRAFT}'.")
         return Webinar.STATUS_PUBLISHED if value in [Webinar.STATUS_PUBLISHED, 'publish'] else Webinar.STATUS_DRAFT
+
+    def validate(self, attrs):
+        title = attrs.get('title') or (self.instance and self.instance.title)
+        if not title or not str(title).strip():
+            raise serializers.ValidationError({'title': 'Webinar title is required.'})
+
+        cleaned_title = ' '.join(str(title).strip().split())
+        attrs['title'] = cleaned_title
+
+        title_slug = slugify(cleaned_title)
+        existing_qs = Webinar.objects.filter(is_deleted=False).filter(
+            models.Q(title__iexact=cleaned_title) | models.Q(slug__iexact=title_slug)
+        )
+        if self.instance:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        if existing_qs.exists():
+            raise serializers.ValidationError({
+                'title': f"A webinar or workshop with the title '{cleaned_title}' already exists."
+            })
+
+        return attrs
 
     def _resolve_speaker(self, speaker_identifier):
         if not speaker_identifier:
