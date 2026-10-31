@@ -3,7 +3,7 @@ from django.db import models
 from django.shortcuts import get_object_or_404
 from django.http import Http404
 from django.utils.text import slugify
-from rest_framework import viewsets, permissions, filters, status
+from rest_framework import viewsets, permissions, filters, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -35,8 +35,8 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
     lookup_field = 'slug'
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['is_active']
-    search_fields = ['title', 'description', 'course_name', 'category']
+    filterset_fields = ['is_active', 'resource_type']
+    search_fields = ['title', 'description', 'course_name', 'category', 'resource_type']
     ordering_fields = ['price', 'created_at']
     ordering = ['-created_at', '-id']
 
@@ -52,6 +52,16 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             category_param = category_param.strip()
             slug_variant = category_param.replace('-', ' ')
             qs = qs.filter(models.Q(category__iexact=category_param) | models.Q(category__iexact=slug_variant))
+
+        resource_type_param = self.request.query_params.get('resource_type') or self.request.query_params.get('type')
+        if resource_type_param and resource_type_param.strip().lower() != 'all':
+            rt_val = resource_type_param.strip().lower()
+            if rt_val in ['note', 'notes', 'study notes', 'study note']:
+                qs = qs.filter(resource_type='note')
+            elif rt_val in ['question paper', 'question_paper', 'question papers', 'question']:
+                qs = qs.filter(resource_type='question paper')
+            else:
+                qs = qs.filter(resource_type__iexact=rt_val)
 
         if self.request.user and self.request.user.is_authenticated:
             return qs
@@ -75,7 +85,7 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         return get_object_or_404(queryset, slug=lookup)
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'types']:
             return [permissions.AllowAny()]
         if self.action in ['categories', 'category_detail', 'resource_categories_minimal'] and self.request.method == 'GET':
             return [permissions.AllowAny()]
@@ -141,7 +151,19 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
         instance.delete()
 
     @extend_schema(
-        summary="Create resource",
+        summary="List resource types",
+        description="Returns list of available resource types: note and question paper",
+        responses={200: serializers.ListSerializer(child=serializers.DictField())}
+    )
+    @action(detail=False, methods=['get'], url_path='types', permission_classes=[permissions.AllowAny])
+    def types(self, request):
+        """Returns list of available resource types: note and question paper."""
+        return Response([
+            {"key": "note", "label": "Notes", "name": "Notes"},
+            {"key": "question paper", "label": "Question Paper", "name": "Question Paper"},
+        ], status=status.HTTP_200_OK)
+
+    @extend_schema(
         description="Create resource endpoint at /api/v1/resources/create/",
         request=PaidResourceSerializer,
         responses={201: PaidResourceSerializer}

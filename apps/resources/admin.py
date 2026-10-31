@@ -7,9 +7,9 @@ class ResourcePDFInline(admin.TabularInline):
 
 @admin.register(PaidResource)
 class PaidResourceAdmin(admin.ModelAdmin):
-    list_display = ('title', 'category', 'price', 'currency', 'pdf_count', 'is_active', 'is_deleted', 'created_at')
-    list_filter = ('category', 'is_active', 'is_deleted')
-    search_fields = ('title', 'description')
+    list_display = ('title', 'resource_type', 'category', 'price', 'currency', 'pdf_count', 'is_active', 'is_deleted', 'created_at')
+    list_filter = ('resource_type', 'category', 'is_active', 'is_deleted')
+    search_fields = ('title', 'description', 'course_name')
     prepopulated_fields = {'slug': ('title',)}
     inlines = [ResourcePDFInline]
 
@@ -18,5 +18,3 @@ class ResourcePurchaseAdmin(admin.ModelAdmin):
     list_display = ('student', 'resource', 'payment_status', 'status', 'amount_paid', 'currency', 'purchased_at', 'download_count')
     list_filter = ('payment_status', 'status', 'purchased_at')
     search_fields = ('student__name', 'student__email', 'resource__title', 'order_id')
-
-

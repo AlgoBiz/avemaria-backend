@@ -43,9 +43,23 @@ class PaidResource(BaseModel):
         ('Mock Test Set', 'Mock Test Set'),
     )
 
+    RESOURCE_TYPE_NOTE = 'note'
+    RESOURCE_TYPE_QUESTION_PAPER = 'question paper'
+
+    RESOURCE_TYPE_CHOICES = (
+        (RESOURCE_TYPE_NOTE, 'Note'),
+        (RESOURCE_TYPE_QUESTION_PAPER, 'Question Paper'),
+    )
+
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=280, unique=True, blank=True)
     course_name = models.CharField(max_length=255, blank=True, default='', help_text="Associated course / programme name")
+    resource_type = models.CharField(
+        max_length=50,
+        choices=RESOURCE_TYPE_CHOICES,
+        default=RESOURCE_TYPE_NOTE,
+        help_text="Resource type: note or question paper"
+    )
     category = models.CharField(max_length=100, default='Question Papers')
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     currency = models.CharField(max_length=10, default='£')
@@ -75,11 +89,21 @@ class PaidResource(BaseModel):
         super().save(*args, **kwargs)
 
     @property
+    def is_free(self):
+        return self.price is None or self.price <= 0
+
+    @property
+    def price_display(self):
+        if self.is_free:
+            return 'free'
+        return f"{self.price:.2f}"
+
+    @property
     def pdf_count(self):
         return self.pdf_files.filter(is_deleted=False).count()
 
     def __str__(self):
-        return f"{self.title} ({self.category})"
+        return f"{self.title} ({self.resource_type} - {self.category})"
 
 
 class ResourcePDF(BaseModel):
@@ -159,5 +183,3 @@ class ResourcePurchase(BaseModel):
 
     def __str__(self):
         return f"{self.student.name} - {self.resource.title} ({self.get_status_display()})"
-
-
