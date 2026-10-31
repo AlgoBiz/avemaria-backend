@@ -190,6 +190,8 @@ class ResourcePDFSerializer(serializers.ModelSerializer):
 class ResourceListSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     slug = serializers.CharField(read_only=True)
+    resource_type = serializers.CharField(read_only=True)
+    price = serializers.CharField(read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     highlights = serializers.JSONField(read_only=True)
 
@@ -198,9 +200,10 @@ class ResourceListSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'slug',
+            'title',
+            'resource_type',
             'category',
             'price',
-            'title',
             'description',
             'highlights',
             'pdf_count',
@@ -219,6 +222,23 @@ class ResourceListSerializer(serializers.ModelSerializer):
             ordered_ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
+
+        rt = getattr(instance, 'resource_type', None) or 'note'
+        ordered_ret['resource_type'] = rt
+        ordered_ret['resource_type_display'] = 'Question Paper' if rt == 'question paper' else 'Notes'
+
+        curr = getattr(instance, 'currency', None) or '£'
+        if instance.price is None or instance.price <= 0:
+            ordered_ret['price'] = 'free'
+            ordered_ret['price_formatted'] = 'Free'
+            ordered_ret['is_free'] = True
+            ordered_ret['is_paid'] = False
+        else:
+            ordered_ret['price'] = f"{instance.price:.2f}"
+            ordered_ret['price_formatted'] = f"{curr}{instance.price:.2f}"
+            ordered_ret['is_free'] = False
+            ordered_ret['is_paid'] = True
+
         return ordered_ret
 
 
@@ -228,6 +248,8 @@ class PaidResourceSerializer(serializers.ModelSerializer):
     pdf_files = ResourcePDFSerializer(many=True, read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     category = serializers.CharField(required=True, allow_blank=False)
+    resource_type = serializers.CharField(required=False, default='note')
+    price = serializers.CharField(required=False, allow_blank=True, default='free')
     highlights = serializers.JSONField(required=False, default=list)
 
     class Meta:
@@ -236,6 +258,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             'id',
             'slug',
             'title',
+            'resource_type',
             'category',
             'course_name',
             'price',
@@ -269,8 +292,23 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
         ordered_ret['course_name'] = instance.course_name
+
+        rt = getattr(instance, 'resource_type', None) or 'note'
+        ordered_ret['resource_type'] = rt
+        ordered_ret['resource_type_display'] = 'Question Paper' if rt == 'question paper' else 'Notes'
+
         curr = getattr(instance, 'currency', None) or '£'
-        ordered_ret['price_formatted'] = f"{curr}{instance.price:.2f}" if instance.price is not None else f"{curr}0.00"
+        if instance.price is None or instance.price <= 0:
+            ordered_ret['price'] = 'free'
+            ordered_ret['price_formatted'] = 'Free'
+            ordered_ret['is_free'] = True
+            ordered_ret['is_paid'] = False
+        else:
+            ordered_ret['price'] = f"{instance.price:.2f}"
+            ordered_ret['price_formatted'] = f"{curr}{instance.price:.2f}"
+            ordered_ret['is_free'] = False
+            ordered_ret['is_paid'] = True
+
         pdf_cnt = instance.pdf_count
         ordered_ret['pdf_count_display'] = f"{pdf_cnt} {'PDF attached' if pdf_cnt == 1 else 'PDFs attached'}"
         return ordered_ret
@@ -296,7 +334,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
 
         # Category alias & auto-creation
         if not mutable_data.get('category'):
-            for alias in ['category_name', 'resource_category', 'type']:
+            for alias in ['category_name', 'resource_category', 'category_title']:
                 if mutable_data.get(alias):
                     mutable_data['category'] = str(mutable_data[alias])
                     break
@@ -327,16 +365,55 @@ class PaidResourceSerializer(serializers.ModelSerializer):
                 'category': "Resource category is required. Please select an existing category or add it first."
             })
 
-        # Clean up price string (e.g. "£29.00", "Free", "$29.00")
-        price = mutable_data.get('price')
-        if price is not None:
-            if isinstance(price, str):
-                cleaned_price = price.strip()
-                if cleaned_price.lower() in ['free', 'free of cost', 'nil', '']:
+        # Resource Type handling & normalization
+        raw_rt = mutable_data.get('resource_type')
+        if raw_rt is None:
+            for alias in ['resourceType', 'resourcetype', 'material_type', 'item_type']:
+                if mutable_data.get(alias) is not None:
+                    raw_rt = mutable_data[alias]
+                    break
+
+        if raw_rt is not None and str(raw_rt).strip():
+            cleaned_rt = str(raw_rt).strip().lower()
+            if cleaned_rt in ['notes', 'note', 'study note', 'study notes', 'study_note', 'study_notes']:
+                mutable_data['resource_type'] = 'note'
+            elif cleaned_rt in ['question paper', 'question_paper', 'question-paper', 'question papers', 'question', 'question_papers']:
+                mutable_data['resource_type'] = 'question paper'
+            else:
+                mutable_data['resource_type'] = cleaned_rt
+        elif not getattr(self, 'partial', False):
+            mutable_data['resource_type'] = 'note'
+
+        # Clean up price (e.g. 'free', 0, '0', '', None, '£29.00', 29.00, '$29.00')
+        if 'price' in mutable_data or not getattr(self, 'partial', False):
+            price_val = mutable_data.get('price')
+            if price_val is None or str(price_val).strip() == '':
+                mutable_data['price'] = '0.00'
+            elif isinstance(price_val, (int, float)):
+                if price_val <= 0:
+                    mutable_data['price'] = '0.00'
+                else:
+                    mutable_data['price'] = f"{price_val:.2f}"
+            elif isinstance(price_val, str):
+                cleaned_price = price_val.strip()
+                if cleaned_price.lower() in ['free', 'free of cost', 'nil', '', '0', '0.0', '0.00', 'none', 'null']:
                     mutable_data['price'] = '0.00'
                 else:
                     cleaned_price = cleaned_price.replace('£', '').replace('$', '').replace('€', '').replace(',', '').strip()
-                    mutable_data['price'] = cleaned_price
+                    try:
+                        f_val = float(cleaned_price)
+                        if f_val <= 0:
+                            mutable_data['price'] = '0.00'
+                        else:
+                            mutable_data['price'] = f"{f_val:.2f}"
+                    except ValueError:
+                        mutable_data['price'] = cleaned_price
+
+        # Also support is_paid / paid boolean flags from UI switches (see Image 1 & 2)
+        if 'is_paid' in mutable_data and (mutable_data['is_paid'] is False or str(mutable_data['is_paid']).lower() in ['false', '0']):
+            mutable_data['price'] = '0.00'
+        elif 'paid' in mutable_data and (mutable_data['paid'] is False or str(mutable_data['paid']).lower() in ['false', '0']):
+            mutable_data['price'] = '0.00'
 
         # Support 'key_features' or 'features' alias for 'highlights'
         if hasattr(data, 'getlist'):
@@ -363,7 +440,6 @@ class PaidResourceSerializer(serializers.ModelSerializer):
                 elif mutable_data.get('features'):
                     mutable_data['highlights'] = mutable_data['features']
 
-
         # Parse highlights if passed as JSON string or multi-line string
         highlights = mutable_data.get('highlights')
         if isinstance(highlights, str):
@@ -382,6 +458,25 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'title': 'Title is required.'})
         if not attrs.get('category') and not (self.instance and self.instance.category):
             raise serializers.ValidationError({'category': 'Resource category is required. A category must be created or selected before adding a resource.'})
+
+        # Validate resource_type
+        rt = attrs.get('resource_type') or (self.instance and getattr(self.instance, 'resource_type', None))
+        if rt and rt not in ['note', 'question paper']:
+            raise serializers.ValidationError({
+                'resource_type': "Resource type must be either 'note' or 'question paper'."
+            })
+
+        # Validate price
+        price_val = attrs.get('price')
+        if price_val is not None:
+            try:
+                from decimal import Decimal
+                d = Decimal(str(price_val))
+                if d < Decimal('0.00'):
+                    raise serializers.ValidationError({'price': 'Price cannot be negative.'})
+                attrs['price'] = d
+            except Exception:
+                raise serializers.ValidationError({'price': 'A valid price number is required.'})
 
         cleaned_title = ' '.join(str(title).strip().split())
         attrs['title'] = cleaned_title
@@ -445,6 +540,7 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     slug = serializers.CharField(source='resource.slug', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     description = serializers.CharField(source='resource.description', read_only=True)
     highlights = serializers.JSONField(source='resource.highlights', read_only=True)
@@ -458,7 +554,7 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
         from apps.resources.models import ResourcePurchase
         model = ResourcePurchase
         fields = (
-            'id', 'resource_id', 'title', 'slug', 'category', 'description',
+            'id', 'resource_id', 'title', 'slug', 'resource_type', 'category', 'description',
             'highlights', 'status', 'status_display',
             'payment_status', 'payment_method',
             'amount_paid', 'currency', 'order_id',
@@ -524,6 +620,7 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
     Returns: id, resource_id, category, title, description, purchased_date, files.
     """
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     description = serializers.CharField(source='resource.description', read_only=True)
@@ -536,6 +633,7 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'resource_id',
+            'resource_type',
             'category',
             'title',
             'description',
@@ -571,6 +669,7 @@ class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
     - Downloadable PDF files
     """
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     description = serializers.CharField(source='resource.description', read_only=True)
@@ -591,6 +690,7 @@ class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'resource_id',
+            'resource_type',
             'category',
             'title',
             'description',
@@ -784,6 +884,7 @@ class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
     resource = serializers.CharField(source='resource.title', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     date = serializers.SerializerMethodField()
     amount = serializers.SerializerMethodField()
@@ -799,6 +900,7 @@ class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
             'id',
             'resource_id',
             'resource',
+            'resource_type',
             'category',
             'date',
             'amount',
@@ -849,6 +951,7 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
     resource_title = serializers.CharField(source='resource.title', read_only=True)
     resource_slug = serializers.CharField(source='resource.slug', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     amount = serializers.DecimalField(source='amount_paid', max_digits=10, decimal_places=2, read_only=True)
     amount_formatted = serializers.SerializerMethodField()
@@ -864,6 +967,7 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
             'resource_id',
             'resource_title',
             'resource_slug',
+            'resource_type',
             'category',
             'payment_method',
             'order_id',
@@ -909,6 +1013,7 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
     receipt_number = serializers.SerializerMethodField()
     resource_id = serializers.IntegerField(source='resource.id', read_only=True)
     resource_title = serializers.CharField(source='resource.title', read_only=True)
+    resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     date = serializers.SerializerMethodField()
     amount_paid = serializers.SerializerMethodField()
@@ -923,6 +1028,7 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
             'receipt_number',
             'resource_id',
             'resource_title',
+            'resource_type',
             'category',
             'date',
             'amount_paid',
@@ -1052,6 +1158,7 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
                 "description": obj.resource.title,
                 "summary": obj.resource.description or "Condensed analyte, Instrumentation and quality-control notes written for licensing candidates.",
                 "category": obj.resource.category or "Notes",
+                "resource_type": getattr(obj.resource, 'resource_type', 'note'),
                 "qty": 1,
                 "price": formatted_price,
                 "total": formatted_price
