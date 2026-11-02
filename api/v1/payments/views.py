@@ -241,14 +241,31 @@ class CreateCheckoutSessionView(APIView):
 
         item_type = serializer.validated_data['item_type']
         item_lookup = str(serializer.validated_data['item_id']).strip()
+        name_input = (serializer.validated_data.get('name') or '').strip()
+        phone_input = (serializer.validated_data.get('phone') or '').strip()
 
         # Resolve student profile
         student = getattr(request.user, 'student_profile', None)
         if not student:
             student, _ = Student.objects.get_or_create(
                 email=request.user.email,
-                defaults={'user': request.user, 'name': request.user.display_name, 'status': 'active'}
+                defaults={
+                    'user': request.user,
+                    'name': name_input or request.user.display_name,
+                    'phone': phone_input,
+                    'status': 'active'
+                }
             )
+        else:
+            updated_fields = []
+            if name_input and (not student.name or student.name == student.email):
+                student.name = name_input
+                updated_fields.append('name')
+            if phone_input and not student.phone:
+                student.phone = phone_input
+                updated_fields.append('phone')
+            if updated_fields:
+                student.save(update_fields=updated_fields)
 
         stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', '') or os.getenv('STRIPE_SECRET_KEY', '')
         if not stripe_secret:
@@ -356,7 +373,6 @@ class CreateCheckoutSessionView(APIView):
 
         try:
             checkout_session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
                 line_items=[{
                     'price_data': {
                         'currency': iso_currency,
@@ -376,6 +392,8 @@ class CreateCheckoutSessionView(APIView):
                     'student_id': str(student.id),
                     'item_type': item_type,
                     'item_id': str(item_obj.id),
+                    'student_name': str(student.name or ''),
+                    'student_phone': str(student.phone or ''),
                 },
                 success_url=success_url,
                 cancel_url=cancel_url,
