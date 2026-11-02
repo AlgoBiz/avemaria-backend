@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.http import Http404
 from django.db.models import Count, Q
 from django.utils.text import slugify
-from rest_framework import viewsets, permissions, filters, status
+from rest_framework import viewsets, permissions, filters, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -19,13 +19,18 @@ from .serializers import (
     BlogStatsSerializer,
     BlogCategoriesResponseSerializer,
     BlogTogglePublishedResponseSerializer,
+    BlogToggleActiveResponseSerializer,
 )
 
 
 class BlogCategoryViewSet(viewsets.ModelViewSet):
-    queryset = BlogCategory.objects.filter(is_deleted=False).order_by('id')
+    queryset = BlogCategory.objects.filter(is_deleted=False).order_by('-created_at', '-id')
     serializer_class = BlogCategorySerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'id', 'name']
+    ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
         if self.action == 'minimal':
@@ -176,6 +181,16 @@ class BlogViewSet(viewsets.ModelViewSet):
         elif not (self.request.user and self.request.user.is_authenticated):
             qs = qs.filter(is_published=True)
 
+        is_act = self.request.query_params.get('is_active')
+        if is_act is not None:
+            qs = qs.filter(is_active=str(is_act).lower() in ['true', '1'])
+        status_param = self.request.query_params.get('status')
+        if status_param is not None:
+            if status_param.lower() in ['active', 'true', '1']:
+                qs = qs.filter(is_active=True)
+            elif status_param.lower() in ['inactive', 'false', '0']:
+                qs = qs.filter(is_active=False)
+
         return qs.order_by('-created_at', '-id')
 
     def get_object(self):
@@ -261,7 +276,7 @@ class BlogViewSet(viewsets.ModelViewSet):
                     cat_obj.is_deleted = False
                     cat_obj.save(update_fields=['is_deleted'])
 
-        cat_objs = BlogCategory.objects.filter(is_deleted=False).order_by('id')
+        cat_objs = BlogCategory.objects.filter(is_deleted=False).order_by('-created_at', '-id')
         all_count = Blog.objects.filter(is_deleted=False).count()
 
         return Response({
@@ -356,6 +371,24 @@ class BlogViewSet(viewsets.ModelViewSet):
             'success': True,
             'is_published': blog.is_published,
             'message': f"Blog '{blog.title}' {'published' if blog.is_published else 'unpublished'}."
+        })
+
+    @extend_schema(
+        summary="Toggle active status",
+        description="Toggle active status of a blog article (active/inactive)",
+        request=None,
+        responses={200: BlogToggleActiveResponseSerializer}
+    )
+    @action(detail=True, methods=['post'], url_path='toggle-active')
+    def toggle_active(self, request, pk=None):
+        blog = self.get_object()
+        blog.is_active = not blog.is_active
+        blog.save(update_fields=['is_active'])
+        return Response({
+            'success': True,
+            'is_active': blog.is_active,
+            'status': 'active' if blog.is_active else 'inactive',
+            'message': f"Blog '{blog.title}' is now {'active' if blog.is_active else 'inactive'}."
         })
 
     def perform_destroy(self, instance):

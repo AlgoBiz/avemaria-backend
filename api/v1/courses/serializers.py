@@ -871,6 +871,7 @@ class CourseWriteSerializer(serializers.ModelSerializer):
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     course = CourseListSerializer(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 

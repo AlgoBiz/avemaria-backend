@@ -2,6 +2,7 @@ import json
 import datetime
 from collections import OrderedDict
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
@@ -39,6 +40,17 @@ class BlogCategoryCreateSerializer(serializers.ModelSerializer):
             mutable_data = data.copy()
         else:
             mutable_data = dict(data)
+
+        # Active / Inactive status alias
+        if 'status' in mutable_data and 'is_active' not in mutable_data:
+            s_val = str(mutable_data['status']).strip().lower()
+            if s_val in ['active', 'true', '1']:
+                mutable_data['is_active'] = True
+            elif s_val in ['inactive', 'false', '0']:
+                mutable_data['is_active'] = False
+        elif 'is_active' in mutable_data:
+            if isinstance(mutable_data['is_active'], str):
+                mutable_data['is_active'] = mutable_data['is_active'].strip().lower() in ['true', '1']
 
         if not mutable_data.get('name'):
             for alias in ['category_name', 'title', 'category', 'category_title']:
@@ -80,6 +92,7 @@ class BlogCategoryCreateSerializer(serializers.ModelSerializer):
         if existing:
             if existing.is_deleted:
                 existing.is_deleted = False
+                existing.created_at = timezone.now()
                 for k, v in validated_data.items():
                     setattr(existing, k, v)
                 existing.save()
@@ -126,6 +139,17 @@ class BlogCategorySerializer(serializers.ModelSerializer):
         else:
             mutable_data = dict(data)
 
+        # Active / Inactive status alias
+        if 'status' in mutable_data and 'is_active' not in mutable_data:
+            s_val = str(mutable_data['status']).strip().lower()
+            if s_val in ['active', 'true', '1']:
+                mutable_data['is_active'] = True
+            elif s_val in ['inactive', 'false', '0']:
+                mutable_data['is_active'] = False
+        elif 'is_active' in mutable_data:
+            if isinstance(mutable_data['is_active'], str):
+                mutable_data['is_active'] = mutable_data['is_active'].strip().lower() in ['true', '1']
+
         if not mutable_data.get('name'):
             for alias in ['category_name', 'title', 'category', 'category_title']:
                 if mutable_data.get(alias):
@@ -166,6 +190,7 @@ class BlogCategorySerializer(serializers.ModelSerializer):
         if existing:
             if existing.is_deleted:
                 existing.is_deleted = False
+                existing.created_at = timezone.now()
                 for k, v in validated_data.items():
                     setattr(existing, k, v)
                 existing.save()
@@ -198,6 +223,8 @@ class BlogListSerializer(serializers.ModelSerializer):
     publish_date = serializers.SerializerMethodField()
     cover_image = serializers.SerializerMethodField()
     blocks_count = serializers.IntegerField(source='content_blocks_count', read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Blog
@@ -213,6 +240,8 @@ class BlogListSerializer(serializers.ModelSerializer):
             'cover_image',
             'blocks_count',
             'is_published',
+            'is_active',
+            'status',
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -228,12 +257,18 @@ class BlogListSerializer(serializers.ModelSerializer):
     def get_publish_date(self, obj):
         return obj.publish_date_formatted or (str(obj.publish_date) if obj.publish_date else "")
 
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        return 'active' if getattr(obj, 'is_active', True) else 'inactive'
+
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         if hasattr(instance, 'uuid'):
             ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ret['slug'] = instance.slug
+        ret['is_active'] = bool(getattr(instance, 'is_active', True))
+        ret['status'] = 'active' if getattr(instance, 'is_active', True) else 'inactive'
         return ret
 
 
@@ -247,6 +282,8 @@ class BlogDetailSerializer(serializers.ModelSerializer):
     content_blocks = serializers.JSONField(required=False, default=list)
     meta_keywords = serializers.JSONField(required=False, default=list)
     meta_tags = serializers.JSONField(source='meta_keywords', required=False, read_only=True)
+    is_active = serializers.BooleanField(required=False, default=True)
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Blog
@@ -256,7 +293,7 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             'author_name', 'cover_image',
             'content_blocks', 'blocks_count',
             'meta_description', 'meta_keywords', 'meta_tags',
-            'is_published', 'is_active', 'is_deleted',
+            'is_published', 'is_active', 'status', 'is_deleted',
             'created_at', 'updated_at'
         )
         extra_kwargs = {
@@ -275,6 +312,10 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             return obj.cover_image.url
         return None
 
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        return 'active' if getattr(obj, 'is_active', True) else 'inactive'
+
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         if hasattr(instance, 'uuid'):
@@ -284,6 +325,8 @@ class BlogDetailSerializer(serializers.ModelSerializer):
         ret['title'] = instance.title
         ret['content_blocks_count'] = instance.content_blocks_count
         ret['publish_date_formatted'] = instance.publish_date_formatted
+        ret['is_active'] = bool(getattr(instance, 'is_active', True))
+        ret['status'] = 'active' if getattr(instance, 'is_active', True) else 'inactive'
         return ret
 
     @extend_schema_field(serializers.CharField())
@@ -297,6 +340,17 @@ class BlogDetailSerializer(serializers.ModelSerializer):
             mutable_data = data.copy()
         else:
             mutable_data = dict(data)
+
+        # Active / Inactive status alias
+        if 'status' in mutable_data and 'is_active' not in mutable_data:
+            s_val = str(mutable_data['status']).strip().lower()
+            if s_val in ['active', 'true', '1']:
+                mutable_data['is_active'] = True
+            elif s_val in ['inactive', 'false', '0']:
+                mutable_data['is_active'] = False
+        elif 'is_active' in mutable_data:
+            if isinstance(mutable_data['is_active'], str):
+                mutable_data['is_active'] = mutable_data['is_active'].strip().lower() in ['true', '1']
 
         # Title / Heading alias
         if not mutable_data.get('heading'):
@@ -476,4 +530,11 @@ class BlogCategoriesResponseSerializer(serializers.Serializer):
 class BlogTogglePublishedResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     is_published = serializers.BooleanField()
+    message = serializers.CharField()
+
+
+class BlogToggleActiveResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    is_active = serializers.BooleanField()
+    status = serializers.CharField()
     message = serializers.CharField()

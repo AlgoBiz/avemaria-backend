@@ -24,6 +24,8 @@ class Base64ImageField(serializers.ImageField):
 
 
 class AdminProfileSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+
     class Meta:
         model = User
         fields = ('id', 'email', 'display_name', 'role', 'avatar', 'is_active', 'is_deleted', 'created_at', 'updated_at')
@@ -200,6 +202,7 @@ class FlexibleDateField(serializers.DateField):
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     documents = StudentDocumentSerializer(many=True, read_only=True)
     date_of_birth = FlexibleDateField(required=False, allow_null=True)
     passport_expiry_date = FlexibleDateField(required=False, allow_null=True)
@@ -309,7 +312,7 @@ class AdminLoginSerializer(serializers.Serializer):
 
 
 class AdminLoginResponseUserSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
+    id = serializers.CharField()
     email = serializers.EmailField()
     display_name = serializers.CharField()
     role = serializers.CharField()
@@ -450,6 +453,6 @@ class StudentReceiptResendResponseSerializer(serializers.Serializer):
     status = serializers.CharField()
     message = serializers.CharField()
     receipt_emailed = serializers.BooleanField()
-    receipt_emailed_at = serializers.DateTimeField(allow_null=True)
+    receipt_emailed_at = serializers.DateTimeField(format='%d/%m/%Y', allow_null=True)
 
 
