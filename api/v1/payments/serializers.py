@@ -16,6 +16,21 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
     item_id = serializers.CharField(
         help_text="ID or slug of the Course or PaidResource"
     )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Candidate or student full name"
+    )
+    email = serializers.EmailField(
+        required=False,
+        allow_blank=True,
+        help_text="Candidate or student email address"
+    )
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Candidate or student contact phone number"
+    )
     success_url = serializers.CharField(
         required=False,
         allow_blank=True,
