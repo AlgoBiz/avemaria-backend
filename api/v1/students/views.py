@@ -15,6 +15,8 @@ from drf_spectacular.utils import extend_schema
 from .serializers import (
     StudentSerializer,
     StudentListSerializer,
+    StudentDetailSerializer,
+    StudentCreateSerializer,
     StudentContactSerializer,
     StudentContactResponseSerializer,
     StudentStatsResponseSerializer,
@@ -40,6 +42,10 @@ class StudentViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at', '-id']
 
     def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return StudentDetailSerializer
+        if self.action in ['create', 'create_student', 'update', 'partial_update']:
+            return StudentCreateSerializer
         return StudentSerializer
 
     def get_permissions(self):
@@ -84,7 +90,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 purchased_ids = ResourcePurchase.objects.filter(is_deleted=False).values_list('student_id', flat=True)
                 qs = qs.filter(id__in=purchased_ids)
 
-        return qs.order_by('-created_at', '-id')
+        return qs.prefetch_related('purchased_resources__resource', 'enrollments__course').order_by('-created_at', '-id')
 
     @extend_schema(
         summary="List student enrolments and orders",
@@ -158,7 +164,15 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         student = self.get_object()
         serializer = StudentSerializer(student, context={'request': request})
-        sdata = serializer.data
+        sdata = {
+            'total_amount': serializer.get_total_amount(student),
+            'base_amount': serializer.get_base_amount(student),
+            'gst_amount': serializer.get_gst_amount(student),
+            'invoice_number': serializer.get_invoice_number(student),
+            'purchase_date_formatted': serializer.get_purchase_date_formatted(student),
+            'item_name': serializer.get_item_name(student),
+            'item_type': serializer.get_item_type(student),
+        }
 
         total_amount = sdata['total_amount']
         base_amount = sdata['base_amount']
@@ -261,7 +275,15 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         student = self.get_object()
         serializer = StudentSerializer(student, context={'request': request})
-        sdata = serializer.data
+        sdata = {
+            'total_amount': serializer.get_total_amount(student),
+            'base_amount': serializer.get_base_amount(student),
+            'gst_amount': serializer.get_gst_amount(student),
+            'invoice_number': serializer.get_invoice_number(student),
+            'purchase_date_formatted': serializer.get_purchase_date_formatted(student),
+            'item_name': serializer.get_item_name(student),
+            'item_type': serializer.get_item_type(student),
+        }
 
         total_amount = sdata['total_amount']
         base_amount = sdata['base_amount']
