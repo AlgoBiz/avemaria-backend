@@ -9,6 +9,8 @@ class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     slug = serializers.CharField(read_only=True)
     name = serializers.CharField(required=False)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    updated_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
 
     class Meta:
         model = ResourceCategory
@@ -20,6 +22,10 @@ class ResourceCategoryCreateSerializer(serializers.ModelSerializer):
             ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ret['slug'] = instance.slug
+        if getattr(instance, 'created_at', None):
+            ret['created_at'] = instance.created_at.strftime('%d/%m/%Y')
+        if getattr(instance, 'updated_at', None):
+            ret['updated_at'] = instance.updated_at.strftime('%d/%m/%Y')
         return ret
 
     def to_internal_value(self, data):
@@ -80,6 +86,8 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
     slug = serializers.CharField(read_only=True)
     name = serializers.CharField(required=False)
     resources_count = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    updated_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
 
     class Meta:
         model = ResourceCategory
@@ -98,6 +106,10 @@ class ResourceCategorySerializer(serializers.ModelSerializer):
         if hasattr(instance, 'name'):
             ret['title'] = instance.name
             ret['category'] = instance.name
+        if getattr(instance, 'created_at', None):
+            ret['created_at'] = instance.created_at.strftime('%d/%m/%Y')
+        if getattr(instance, 'updated_at', None):
+            ret['updated_at'] = instance.updated_at.strftime('%d/%m/%Y')
         return ret
 
     def to_internal_value(self, data):
@@ -173,7 +185,8 @@ class ResourceCategoryMinimalSerializer(serializers.ModelSerializer):
 
 class ResourcePDFSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
-    uploaded_at = serializers.DateTimeField(source='created_at', read_only=True)
+    uploaded_at = serializers.DateTimeField(source='created_at', format='%d/%m/%Y', read_only=True)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
 
     class Meta:
         model = ResourcePDF
@@ -184,6 +197,10 @@ class ResourcePDFSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'uuid'):
             ret['id'] = str(instance.uuid)
         ret['title'] = getattr(instance, 'title', None) or (instance.file.name.split('/')[-1] if getattr(instance, 'file', None) else '')
+        if getattr(instance, 'created_at', None):
+            formatted_dt = instance.created_at.strftime('%d/%m/%Y')
+            ret['created_at'] = formatted_dt
+            ret['uploaded_at'] = formatted_dt
         return ret
 
 
@@ -194,6 +211,9 @@ class ResourceListSerializer(serializers.ModelSerializer):
     price = serializers.CharField(read_only=True)
     pdf_count = serializers.IntegerField(read_only=True)
     highlights = serializers.JSONField(read_only=True)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    updated_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    date = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PaidResource
@@ -207,7 +227,16 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'description',
             'highlights',
             'pdf_count',
+            'created_at',
+            'updated_at',
+            'date',
         )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_date(self, obj):
+        if getattr(obj, 'created_at', None):
+            return obj.created_at.strftime('%d/%m/%Y')
+        return None
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -222,6 +251,13 @@ class ResourceListSerializer(serializers.ModelSerializer):
             ordered_ret['id'] = str(instance.uuid)
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
+
+        if getattr(instance, 'created_at', None):
+            formatted_dt = instance.created_at.strftime('%d/%m/%Y')
+            ordered_ret['created_at'] = formatted_dt
+            ordered_ret['date'] = formatted_dt
+        if getattr(instance, 'updated_at', None):
+            ordered_ret['updated_at'] = instance.updated_at.strftime('%d/%m/%Y')
 
         rt = getattr(instance, 'resource_type', None) or 'note'
         ordered_ret['resource_type'] = rt
@@ -251,6 +287,9 @@ class PaidResourceSerializer(serializers.ModelSerializer):
     resource_type = serializers.CharField(required=False, default='note')
     price = serializers.CharField(required=False, allow_blank=True, default='free')
     highlights = serializers.JSONField(required=False, default=list)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    updated_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    date = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PaidResource
@@ -269,7 +308,8 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             'is_active',
             'is_deleted',
             'created_at',
-            'updated_at'
+            'updated_at',
+            'date',
         )
         extra_kwargs = {
             'course_name': {'required': False, 'allow_blank': True},
@@ -277,6 +317,12 @@ class PaidResourceSerializer(serializers.ModelSerializer):
             'is_deleted': {'default': False, 'required': False},
             'description': {'required': False, 'allow_blank': True}
         }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_date(self, obj):
+        if getattr(obj, 'created_at', None):
+            return obj.created_at.strftime('%d/%m/%Y')
+        return None
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -292,6 +338,13 @@ class PaidResourceSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'slug'):
             ordered_ret['slug'] = instance.slug
         ordered_ret['course_name'] = instance.course_name
+
+        if getattr(instance, 'created_at', None):
+            formatted_dt = instance.created_at.strftime('%d/%m/%Y')
+            ordered_ret['created_at'] = formatted_dt
+            ordered_ret['date'] = formatted_dt
+        if getattr(instance, 'updated_at', None):
+            ordered_ret['updated_at'] = instance.updated_at.strftime('%d/%m/%Y')
 
         rt = getattr(instance, 'resource_type', None) or 'note'
         ordered_ret['resource_type'] = rt
@@ -498,7 +551,7 @@ class PaidResourceSerializer(serializers.ModelSerializer):
 
 class ResourcePDFUploadSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
-    uploaded_at = serializers.DateTimeField(source='created_at', read_only=True)
+    uploaded_at = serializers.DateTimeField(source='created_at', format='%d/%m/%Y', read_only=True)
 
     class Meta:
         model = ResourcePDF
@@ -508,6 +561,8 @@ class ResourcePDFUploadSerializer(serializers.ModelSerializer):
         ret = super().to_representation(instance)
         if hasattr(instance, 'uuid'):
             ret['id'] = str(instance.uuid)
+        if getattr(instance, 'created_at', None):
+            ret['uploaded_at'] = instance.created_at.strftime('%d/%m/%Y')
         return ret
 
 
@@ -537,7 +592,8 @@ class ResourcePurchaseFileSerializer(serializers.ModelSerializer):
 
 class ResourcePurchaseSerializer(serializers.ModelSerializer):
     from apps.resources.models import ResourcePurchase
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     slug = serializers.CharField(source='resource.slug', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
@@ -545,7 +601,13 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
     description = serializers.CharField(source='resource.description', read_only=True)
     highlights = serializers.JSONField(source='resource.highlights', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    purchased_date = serializers.SerializerMethodField()
     purchased_date_formatted = serializers.SerializerMethodField()
+    date = serializers.SerializerMethodField()
+    last_accessed_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    created_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
+    updated_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     access_url = serializers.SerializerMethodField()
     pdf_count = serializers.IntegerField(source='resource.pdf_count', read_only=True)
     files = serializers.SerializerMethodField()
@@ -558,7 +620,7 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
             'highlights', 'status', 'status_display',
             'payment_status', 'payment_method',
             'amount_paid', 'currency', 'order_id',
-            'purchased_at', 'purchased_date_formatted',
+            'purchased_at', 'purchased_date', 'purchased_date_formatted', 'date',
             'download_count', 'last_accessed_at',
             'access_url', 'pdf_count', 'files',
             'created_at', 'updated_at'
@@ -568,10 +630,38 @@ class ResourcePurchaseSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_purchased_date_formatted(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"Purchased {day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['purchased_at'] = pdate
+            ret['purchased_date'] = pdate
+            ret['purchased_date_formatted'] = pdate
+            ret['date'] = pdate
+        if getattr(instance, 'last_accessed_at', None):
+            ret['last_accessed_at'] = instance.last_accessed_at.strftime('%d/%m/%Y')
+        if getattr(instance, 'created_at', None):
+            ret['created_at'] = instance.created_at.strftime('%d/%m/%Y')
+        if getattr(instance, 'updated_at', None):
+            ret['updated_at'] = instance.updated_at.strftime('%d/%m/%Y')
+        return ret
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_access_url(self, obj):
@@ -619,12 +709,15 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
     Minimal serializer for Student Purchased Resources list.
     Returns: id, resource_id, category, title, description, purchased_date, files.
     """
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     description = serializers.CharField(source='resource.description', read_only=True)
     purchased_date = serializers.SerializerMethodField()
+    date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     files = serializers.SerializerMethodField()
 
     class Meta:
@@ -638,6 +731,8 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
             'title',
             'description',
             'purchased_date',
+            'date',
+            'purchased_at',
             'files',
         )
         read_only_fields = fields
@@ -645,10 +740,25 @@ class StudentPurchasedResourceCardSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_purchased_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['purchased_date'] = pdate
+            ret['date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
     @extend_schema_field(StudentPurchasedResourceFileSerializer(many=True))
     def get_files(self, obj):
@@ -668,12 +778,15 @@ class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
     - Tab 3: Exam Blueprint & Strategy (Licensing blueprint with topic weightages)
     - Downloadable PDF files
     """
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     title = serializers.CharField(source='resource.title', read_only=True)
     description = serializers.CharField(source='resource.description', read_only=True)
     purchased_date = serializers.SerializerMethodField()
+    date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     status = serializers.CharField(read_only=True)
     payment_status = serializers.CharField(read_only=True)
     badges = serializers.SerializerMethodField()
@@ -695,6 +808,8 @@ class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
             'title',
             'description',
             'purchased_date',
+            'date',
+            'purchased_at',
             'status',
             'payment_status',
             'badges',
@@ -710,10 +825,25 @@ class StudentPurchasedResourceDetailSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_purchased_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['purchased_date'] = pdate
+            ret['date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
     @extend_schema_field(serializers.DictField())
     def get_badges(self, obj):
@@ -881,17 +1011,18 @@ class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
     Serializer specifically modeled for the Student Purchase History Table:
     Columns: SL. NO | ITEM / RESOURCE | DATE | AMOUNT | REFERENCE | STATUS | RECEIPT / INVOICE
     """
-    id = serializers.IntegerField(read_only=True)
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     resource = serializers.CharField(source='resource.title', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     date = serializers.SerializerMethodField()
+    purchased_date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     amount = serializers.SerializerMethodField()
     reference = serializers.SerializerMethodField()
     status = serializers.CharField(source='payment_status', read_only=True)
     invoice = serializers.SerializerMethodField()
-    purchased_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         from apps.resources.models import ResourcePurchase
@@ -903,21 +1034,37 @@ class StudentPurchaseHistorySerializer(serializers.ModelSerializer):
             'resource_type',
             'category',
             'date',
+            'purchased_date',
+            'purchased_at',
             'amount',
             'reference',
             'status',
             'invoice',
-            'purchased_at'
         )
         read_only_fields = fields
 
     @extend_schema_field(serializers.CharField())
     def get_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['date'] = pdate
+            ret['purchased_date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
     @extend_schema_field(serializers.CharField())
     def get_amount(self, obj):
@@ -948,7 +1095,8 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
     Left: Resource Title
     Right: demo · DEMO-0001 · £15.00
     """
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     resource_title = serializers.CharField(source='resource.title', read_only=True)
     resource_slug = serializers.CharField(source='resource.slug', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
@@ -958,6 +1106,8 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
     status = serializers.CharField(source='payment_status', read_only=True)
     payment_line = serializers.SerializerMethodField()
     date = serializers.SerializerMethodField()
+    purchased_date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
 
     class Meta:
         from apps.resources.models import ResourcePurchase
@@ -977,6 +1127,7 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
             'status',
             'payment_line',
             'date',
+            'purchased_date',
             'purchased_at'
         )
         read_only_fields = fields
@@ -998,10 +1149,25 @@ class StudentPaymentDetailItemSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['date'] = pdate
+            ret['purchased_date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
 
 class StudentReceiptSerializer(serializers.ModelSerializer):
@@ -1009,16 +1175,17 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
     Serializer matching the Receipts / Invoices list interface:
     id, receipt_number, resource_id, resource_title, category, date, amount_paid, payment_status, purchased_at
     """
-    id = serializers.IntegerField(read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
     receipt_number = serializers.SerializerMethodField()
-    resource_id = serializers.IntegerField(source='resource.id', read_only=True)
+    resource_id = serializers.CharField(source='resource.uuid_str', read_only=True)
     resource_title = serializers.CharField(source='resource.title', read_only=True)
     resource_type = serializers.CharField(source='resource.resource_type', read_only=True)
     category = serializers.CharField(source='resource.category', read_only=True)
     date = serializers.SerializerMethodField()
+    purchased_date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     amount_paid = serializers.SerializerMethodField()
     payment_status = serializers.CharField(read_only=True)
-    purchased_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         from apps.resources.models import ResourcePurchase
@@ -1031,9 +1198,10 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
             'resource_type',
             'category',
             'date',
+            'purchased_date',
+            'purchased_at',
             'amount_paid',
             'payment_status',
-            'purchased_at'
         )
         read_only_fields = fields
 
@@ -1046,10 +1214,25 @@ class StudentReceiptSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['date'] = pdate
+            ret['purchased_date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
     @extend_schema_field(serializers.CharField())
     def get_amount_paid(self, obj):
@@ -1073,9 +1256,11 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
     - official_receipt: { title, message, badge }
     - pdf_url: download url
     """
-    id = serializers.IntegerField(read_only=True)
+    id = serializers.CharField(source='uuid_str', read_only=True)
     receipt_number = serializers.SerializerMethodField()
     date = serializers.SerializerMethodField()
+    purchased_date = serializers.SerializerMethodField()
+    purchased_at = serializers.DateTimeField(format='%d/%m/%Y', read_only=True)
     billed_to = serializers.SerializerMethodField()
     payment_summary = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
@@ -1086,7 +1271,6 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
     security_note = serializers.SerializerMethodField()
     official_receipt = serializers.SerializerMethodField()
     pdf_url = serializers.SerializerMethodField()
-    purchased_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         from apps.resources.models import ResourcePurchase
@@ -1095,6 +1279,8 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
             'id',
             'receipt_number',
             'date',
+            'purchased_date',
+            'purchased_at',
             'billed_to',
             'payment_summary',
             'items',
@@ -1105,7 +1291,6 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
             'security_note',
             'official_receipt',
             'pdf_url',
-            'purchased_at'
         )
         read_only_fields = fields
 
@@ -1118,10 +1303,25 @@ class StudentSingleReceiptDetailSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_date(self, obj):
         if obj.purchased_at:
-            day = obj.purchased_at.strftime('%d').lstrip('0')
-            month_year = obj.purchased_at.strftime('%b %Y')
-            return f"{day} {month_year}"
+            return obj.purchased_at.strftime('%d/%m/%Y')
         return ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_purchased_date(self, obj):
+        if obj.purchased_at:
+            return obj.purchased_at.strftime('%d/%m/%Y')
+        return ""
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if hasattr(instance, 'uuid'):
+            ret['id'] = str(instance.uuid)
+        if getattr(instance, 'purchased_at', None):
+            pdate = instance.purchased_at.strftime('%d/%m/%Y')
+            ret['date'] = pdate
+            ret['purchased_date'] = pdate
+            ret['purchased_at'] = pdate
+        return ret
 
     @extend_schema_field(serializers.DictField())
     def get_billed_to(self, obj):

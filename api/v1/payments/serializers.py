@@ -11,11 +11,19 @@ class PaymentConfigSerializer(serializers.Serializer):
 class CreateCheckoutSessionSerializer(serializers.Serializer):
     item_type = serializers.ChoiceField(
         choices=['course', 'resource'],
+        required=False,
         help_text="Type of product being purchased ('course' or 'resource')"
     )
     item_id = serializers.CharField(
+        required=False,
         help_text="ID or slug of the Course or PaidResource"
     )
+    course_id = serializers.CharField(required=False, allow_blank=True)
+    course_slug = serializers.CharField(required=False, allow_blank=True)
+    resource_id = serializers.CharField(required=False, allow_blank=True)
+    resource_slug = serializers.CharField(required=False, allow_blank=True)
+    type = serializers.CharField(required=False, allow_blank=True)
+    id = serializers.CharField(required=False, allow_blank=True)
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -42,13 +50,63 @@ class CreateCheckoutSessionSerializer(serializers.Serializer):
         help_text="Custom redirect URL if customer cancels payment"
     )
 
+    def to_internal_value(self, data):
+        mutable_data = data.copy() if hasattr(data, 'copy') else dict(data)
+
+        # 1. Normalize type / item_type
+        raw_type = mutable_data.get('item_type') or mutable_data.get('type')
+        if not raw_type:
+            if any(k in mutable_data for k in ('course_id', 'course_slug', 'course')):
+                raw_type = 'course'
+            elif any(k in mutable_data for k in ('resource_id', 'resource_slug', 'resource')):
+                raw_type = 'resource'
+
+        if raw_type:
+            norm_type = str(raw_type).strip().lower()
+            if norm_type in ('course', 'courses'):
+                mutable_data['item_type'] = 'course'
+            elif norm_type in ('resource', 'resources'):
+                mutable_data['item_type'] = 'resource'
+
+        # 2. Normalize item_id
+        if not mutable_data.get('item_id'):
+            detected_id = (
+                mutable_data.get('course_id') or
+                mutable_data.get('course_slug') or
+                mutable_data.get('course') or
+                mutable_data.get('resource_id') or
+                mutable_data.get('resource_slug') or
+                mutable_data.get('resource') or
+                mutable_data.get('id')
+            )
+            if detected_id:
+                mutable_data['item_id'] = str(detected_id).strip()
+
+        return super().to_internal_value(mutable_data)
+
+    def validate(self, attrs):
+        if not attrs.get('item_type'):
+            raise serializers.ValidationError({
+                'item_type': "Must be specified ('course' or 'resource'), or provide 'course_id'/'resource_id'."
+            })
+        if not attrs.get('item_id'):
+            raise serializers.ValidationError({
+                'item_id': "Item identifier must be provided ('item_id', 'course_id', or 'resource_id')."
+            })
+        return attrs
+
 
 class CheckoutSessionResponseSerializer(serializers.Serializer):
+    url = serializers.CharField(required=False, help_text="Stripe hosted checkout URL")
     checkout_url = serializers.CharField(help_text="Stripe hosted checkout URL to redirect the user to")
+    checkoutUrl = serializers.CharField(required=False)
+    session_url = serializers.CharField(required=False)
     session_id = serializers.CharField(help_text="Stripe Checkout Session ID")
+    sessionId = serializers.CharField(required=False)
+    id = serializers.CharField(required=False)
     publishable_key = serializers.CharField(help_text="Stripe publishable key")
     item_type = serializers.CharField()
-    item_id = serializers.IntegerField()
+    item_id = serializers.CharField()
     item_title = serializers.CharField()
     amount = serializers.FloatField()
     currency = serializers.CharField()
@@ -61,7 +119,7 @@ class VerifySessionSerializer(serializers.Serializer):
 class VerifySessionResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Payment status: paid, unpaid, or pending")
     item_type = serializers.CharField(allow_blank=True, required=False)
-    item_id = serializers.IntegerField(allow_null=True, required=False)
+    item_id = serializers.CharField(allow_blank=True, required=False)
     item_title = serializers.CharField(allow_blank=True, required=False)
     receipt_number = serializers.CharField(allow_blank=True, required=False)
     amount_paid = serializers.FloatField(required=False)
@@ -76,6 +134,7 @@ class StripeWebhookPayloadSerializer(serializers.Serializer):
 
 
 class PaymentTransactionSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
     item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     student_name = serializers.CharField(source='student.name', read_only=True)

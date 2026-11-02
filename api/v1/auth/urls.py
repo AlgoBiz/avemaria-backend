@@ -80,9 +80,9 @@ urlpatterns = [
 
     # Student Purchased Resources Endpoints
     path('student/resources/', StudentPurchasedResourcesView.as_view(), name='student_resources'),
-    path('student/resources/<str:pk>/', StudentPurchasedResourceDetailView.as_view(), name='student_resource_detail'),
     path('student/resources/purchase/', StudentResourcePurchaseView.as_view(), name='student_resource_purchase'),
     path('student/resources/<str:resource_id>/access/', StudentResourceAccessView.as_view(), name='student_resource_access'),
+    path('student/resources/<str:pk>/', StudentPurchasedResourceDetailView.as_view(), name='student_resource_detail'),
 
     # Student Purchase History Endpoints
     path('student/purchase-history/', StudentPurchaseHistoryView.as_view(), name='student_purchase_history'),

@@ -47,15 +47,38 @@ def get_stripe_currency(currency_symbol_or_code):
     return mapping.get(clean, clean if len(clean) == 3 else getattr(settings, 'STRIPE_CURRENCY', 'gbp').lower())
 
 
+def stripe_to_dict(obj):
+    """
+    Safely converts a StripeObject or dict to a standard Python dict.
+    In stripe-python v8+, StripeObject does not have dict methods like .get().
+    """
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, 'to_dict'):
+        try:
+            return obj.to_dict()
+        except Exception:
+            pass
+    if hasattr(obj, '__getitem__'):
+        try:
+            return {k: obj[k] for k in obj}
+        except Exception:
+            pass
+    return {}
+
+
 def fulfill_checkout_session(session, request=None):
     """
     Idempotent fulfillment helper for a successful Stripe Checkout Session.
     Activates the CourseEnrollment or ResourcePurchase, updates the PaymentTransaction,
     and sends branded tax invoice receipts to the student.
     """
-    session_id = session.get('id') if isinstance(session, dict) else getattr(session, 'id', None)
-    metadata = session.get('metadata', {}) if isinstance(session, dict) else getattr(session, 'metadata', {})
-    payment_intent = session.get('payment_intent') if isinstance(session, dict) else getattr(session, 'payment_intent', '')
+    session_dict = stripe_to_dict(session)
+    session_id = session_dict.get('id') or getattr(session, 'id', None)
+    metadata = stripe_to_dict(session_dict.get('metadata')) or stripe_to_dict(getattr(session, 'metadata', None))
+    payment_intent = session_dict.get('payment_intent') or getattr(session, 'payment_intent', '')
 
     item_type = metadata.get('item_type')
     item_id = metadata.get('item_id')
@@ -79,7 +102,7 @@ def fulfill_checkout_session(session, request=None):
         logger.warning(f"Fulfillment aborted: Missing student or item information for session {session_id}")
         return False
 
-    amount_total = Decimal(str(getattr(session, 'amount_total', 0) or 0)) / Decimal('100.0')
+    amount_total = Decimal(str(session_dict.get('amount_total') or getattr(session, 'amount_total', 0) or 0)) / Decimal('100.0')
 
     # Fulfill Course Enrollment
     if item_type == 'course':
@@ -364,12 +387,31 @@ class CreateCheckoutSessionView(APIView):
             stripe_customer_email=student.email,
         )
 
-        success_url = serializer.validated_data.get('success_url') or (
-            f"{frontend_base}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&item_type={item_type}&item_id={item_obj.id}"
-        )
-        cancel_url = serializer.validated_data.get('cancel_url') or (
-            f"{frontend_base}/payment/cancel?item_type={item_type}&item_id={item_obj.id}"
-        )
+        frontend_base = getattr(settings, 'FRONTEND_URL', 'https://avemaria-frontend.vercel.app').rstrip('/')
+        if not frontend_base.startswith(('http://', 'https://')):
+            frontend_base = f"https://{frontend_base}"
+
+        raw_success_url = (serializer.validated_data.get('success_url') or '').strip()
+        if raw_success_url:
+            if not raw_success_url.startswith(('http://', 'https://')):
+                success_url = f"{frontend_base}/{raw_success_url.lstrip('/')}"
+            else:
+                success_url = raw_success_url
+        else:
+            success_url = (
+                f"{frontend_base}/payment/success?session_id={{CHECKOUT_SESSION_ID}}&item_type={item_type}&item_id={item_obj.id}"
+            )
+
+        raw_cancel_url = (serializer.validated_data.get('cancel_url') or '').strip()
+        if raw_cancel_url:
+            if not raw_cancel_url.startswith(('http://', 'https://')):
+                cancel_url = f"{frontend_base}/{raw_cancel_url.lstrip('/')}"
+            else:
+                cancel_url = raw_cancel_url
+        else:
+            cancel_url = (
+                f"{frontend_base}/payment/cancel?item_type={item_type}&item_id={item_obj.id}"
+            )
 
         try:
             checkout_session = stripe.checkout.Session.create(
@@ -403,11 +445,16 @@ class CreateCheckoutSessionView(APIView):
             transaction.save(update_fields=['stripe_session_id'])
 
             return Response({
+                'url': checkout_session.url,
                 'checkout_url': checkout_session.url,
+                'checkoutUrl': checkout_session.url,
+                'session_url': checkout_session.url,
                 'session_id': checkout_session.id,
+                'sessionId': checkout_session.id,
+                'id': checkout_session.id,
                 'publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or os.getenv('STRIPE_PUBLISHABLE_KEY', ''),
                 'item_type': item_type,
-                'item_id': item_obj.id,
+                'item_id': str(item_obj.uuid),
                 'item_title': item_title,
                 'amount': float(amount),
                 'currency': iso_currency.upper(),
@@ -474,8 +521,9 @@ class StripeWebhookView(APIView):
                 logger.error(f"Failed parsing webhook JSON: {str(e)}")
                 return Response({"detail": "Invalid JSON"}, status=status.HTTP_400_BAD_REQUEST)
 
-        event_type = event.get('type')
-        data_object = event.get('data', {}).get('object', {})
+        event_dict = stripe_to_dict(event)
+        event_type = event_dict.get('type')
+        data_object = stripe_to_dict(event_dict.get('data', {}).get('object', {}))
 
         logger.info(f"Received Stripe event: {event_type}")
 
@@ -529,16 +577,19 @@ class VerifySessionView(APIView):
 
         try:
             session = stripe.checkout.Session.retrieve(session_id)
-            payment_status = getattr(session, 'payment_status', 'unpaid')
+            session_dict = stripe_to_dict(session)
 
-            metadata = getattr(session, 'metadata', {})
+            payment_status = session_dict.get('payment_status') or getattr(session, 'payment_status', 'unpaid')
+
+            metadata = stripe_to_dict(session_dict.get('metadata')) or stripe_to_dict(getattr(session, 'metadata', None))
             item_type = metadata.get('item_type', '')
-            item_id = int(metadata.get('item_id', 0)) if metadata.get('item_id') else None
+            raw_item_id = metadata.get('item_id')
+            item_id = int(raw_item_id) if raw_item_id and str(raw_item_id).isdigit() else None
 
             item_title = ""
             receipt_number = ""
-            amount_paid = float(getattr(session, 'amount_total', 0) or 0) / 100.0
-            currency = getattr(session, 'currency', 'gbp').upper()
+            amount_paid = float(session_dict.get('amount_total') or getattr(session, 'amount_total', 0) or 0) / 100.0
+            currency = str(session_dict.get('currency') or getattr(session, 'currency', 'gbp')).upper()
 
             if payment_status == 'paid':
                 # Run fulfillment idempotently
@@ -561,10 +612,36 @@ class VerifySessionView(APIView):
                             receipt_number = pur.receipt_number
                             item_title = pur.resource.title
 
+            item_uuid = None
+            if item_type == 'course':
+                c = None
+                if item_id:
+                    c = Course.objects.filter(id=item_id).first()
+                elif raw_item_id:
+                    try:
+                        u = uuid.UUID(str(raw_item_id))
+                        c = Course.objects.filter(uuid=u).first()
+                    except (ValueError, TypeError):
+                        pass
+                if c:
+                    item_uuid = str(c.uuid)
+            elif item_type == 'resource':
+                r = None
+                if item_id:
+                    r = PaidResource.objects.filter(id=item_id).first()
+                elif raw_item_id:
+                    try:
+                        u = uuid.UUID(str(raw_item_id))
+                        r = PaidResource.objects.filter(uuid=u).first()
+                    except (ValueError, TypeError):
+                        pass
+                if r:
+                    item_uuid = str(r.uuid)
+
             return Response({
                 'status': payment_status,
                 'item_type': item_type,
-                'item_id': item_id,
+                'item_id': item_uuid or (str(item_id) if item_id else (str(raw_item_id) if raw_item_id else '')),
                 'item_title': item_title,
                 'receipt_number': receipt_number,
                 'amount_paid': amount_paid,

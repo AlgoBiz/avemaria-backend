@@ -2,6 +2,8 @@ from rest_framework import serializers
 from apps.portal_settings.models import PortalSetting
 
 class PortalSettingSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source='uuid_str', read_only=True)
+
     class Meta:
         model = PortalSetting
         fields = (

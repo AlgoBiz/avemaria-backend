@@ -778,7 +778,7 @@ class StudentRegisterView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "user": {
-                    "id": user.id,
+                    "id": user.uuid_str,
                     "email": user.email,
                     "name": user.display_name,
                     "role": user.role,
@@ -889,7 +889,7 @@ class StudentLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "user": {
-                    "id": user.id,
+                    "id": user.uuid_str,
                     "email": user.email,
                     "name": user.display_name,
                     "role": user.role,
@@ -1402,7 +1402,7 @@ class AdminLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "user": {
-                    "id": user.id,
+                    "id": user.uuid_str,
                     "email": user.email,
                     "display_name": user.display_name,
                     "role": user.role,
@@ -2391,7 +2391,7 @@ class StudentReceiptResendView(APIView):
                 "status": "success",
                 "message": f"Receipt for {purchase.resource.title} has been emailed to {student.email}.",
                 "receipt_emailed": True,
-                "receipt_emailed_at": purchase.receipt_emailed_at
+                "receipt_emailed_at": purchase.receipt_emailed_at.strftime('%d/%m/%Y') if purchase.receipt_emailed_at else None
             }, status=status.HTTP_200_OK)
         else:
             return Response({
