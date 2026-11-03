@@ -197,7 +197,8 @@ class CourseListSerializer(serializers.ModelSerializer):
 
         course_status = getattr(instance, 'status', None) or ('published' if instance.is_published else 'draft')
         return OrderedDict([
-            ('id', instance.id),
+            ('id', str(instance.uuid)),
+            ('slug', instance.slug),
             ('title', instance.title),
             ('status', course_status),
             ('category', instance.category.title if instance.category else None),

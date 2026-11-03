@@ -149,7 +149,8 @@ class StudentViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'message': f"Contact dispatch queued successfully for {student.name} ({student.email}).",
-            'student_id': student.id
+            'student_id': str(student.uuid),
+            'id': str(student.uuid)
         }, status=status.HTTP_200_OK)
 
     @extend_schema(

@@ -556,7 +556,8 @@ class StudentContactSerializer(serializers.Serializer):
 class StudentContactResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     message = serializers.CharField()
-    student_id = serializers.IntegerField()
+    student_id = serializers.CharField()
+    id = serializers.CharField(required=False)
 
 
 class StudentStatsResponseSerializer(serializers.Serializer):
