@@ -250,7 +250,7 @@ class DashboardOverviewView(APIView):
             category_title = course.category.title if course.category else 'General'
 
             course_items.append({
-                'id': course.id,
+                'id': str(course.uuid),
                 'item_name': course.title,
                 'type': 'Course',
                 'category': category_title,
@@ -287,7 +287,7 @@ class DashboardOverviewView(APIView):
                 item_status = 'Verified'
 
             resource_items.append({
-                'id': resource.id,
+                'id': str(resource.uuid),
                 'item_name': resource.title,
                 'type': 'Resource',
                 'category': resource.category or 'Question Papers',
