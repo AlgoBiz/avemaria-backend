@@ -749,7 +749,7 @@ class StudentRegisterView(APIView):
         # Create user account with student role
         user = User.objects.create_user(
             email=email,
-word=password,
+            password=password,
             display_name=full_name,
             role='student',
             is_staff=False
