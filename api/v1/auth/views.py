@@ -206,6 +206,7 @@ class PasswordResetRequestView(APIView):
             try:
                 text_content = render_to_string('emails/admin_password_reset.txt', context)
             except Exception:
+                pass
                 text_content = strip_tags(html_content)
 
             subject = "Reset Your Admin Password — Avemaria Admin Portal"
@@ -419,6 +420,7 @@ class OTPRequestView(APIView):
             try:
                 text_content = render_to_string('emails/admin_otp_email.txt', context)
             except Exception:
+                pass
                 text_content = strip_tags(html_content)
 
             subject = f"{otp_code} is your Avemaria Admin Verification Code"
@@ -857,22 +859,6 @@ class StudentLoginView(APIView):
         if not user or not user.check_password(password):
             return Response(
                 {"detail": "Invalid email address or password. Please try again."},
-            )
-
-        # Check if student account is suspended
-        student = getattr(user, 'student_profile', None)
-        if not student:
-            from apps.students.models import Student
-            student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
-        if student and getattr(student, 'is_suspended', False):
-            reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
-            return Response(
-                {"detail": reason},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-
-
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1367,6 +1353,7 @@ class StudentDocumentDeleteView(APIView):
             val_uuid = uuid.UUID(pk_str)
             doc = StudentDocument.objects.filter(student=student, uuid=val_uuid).first()
         except (ValueError, AttributeError):
+            pass
 
 
         if not doc and pk_str.isdigit():
@@ -1533,6 +1520,7 @@ class StudentOTPRequestView(APIView):
             try:
                 text_content = render_to_string('emails/student_otp_email.txt', context)
             except Exception:
+                pass
                 text_content = strip_tags(html_content)
 
             subject = f"{otp_code} is your Avemaria verification code"
@@ -2585,6 +2573,7 @@ class StudentLogoutView(APIView):
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception:
+                pass
     
 
         return Response({
