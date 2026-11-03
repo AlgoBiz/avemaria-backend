@@ -55,6 +55,8 @@ class Student(BaseModel):
     # General & System fields
     location = models.CharField(max_length=150, blank=True, default='', help_text="e.g. London, United Kingdom")
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='active')
+    is_suspended = models.BooleanField(default=False, help_text="Designates whether this student's account is suspended.")
+    suspension_reason = models.TextField(blank=True, default='', help_text="Custom message or reason displayed to student when suspended.")
     registered_date = models.DateField(auto_now_add=True)
     slug = models.SlugField(max_length=180, blank=True, default='', db_index=True)
 

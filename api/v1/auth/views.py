@@ -747,7 +747,7 @@ class StudentRegisterView(APIView):
         # Create user account with student role
         user = User.objects.create_user(
             email=email,
-            password=password,
+word=password,
             display_name=full_name,
             role='student',
             is_staff=False
@@ -804,7 +804,8 @@ class StudentLoginView(APIView):
         request=StudentLoginSerializer,
         responses={
             200: OpenApiResponse(description="Signed in successfully with JWT session tokens"),
-            400: OpenApiResponse(description="Invalid email address or password")
+            400: OpenApiResponse(description="Invalid email address or password"),
+            403: OpenApiResponse(description="Access restricted to students")
         },
         examples=[
             OpenApiExample(
@@ -856,13 +857,48 @@ class StudentLoginView(APIView):
         if not user or not user.check_password(password):
             return Response(
                 {"detail": "Invalid email address or password. Please try again."},
+            )
+
+        # Check if student account is suspended
+        student = getattr(user, 'student_profile', None)
+        if not student:
+            from apps.students.models import Student
+            student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
+        if student and getattr(student, 'is_suspended', False):
+            reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
+            return Response(
+                {"detail": reason},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
+
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check if student account is suspended
+        student = getattr(user, 'student_profile', None)
+        if not student:
+            from apps.students.models import Student
+            student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
+        if student and getattr(student, 'is_suspended', False):
+            reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
+            return Response(
+                {"detail": reason},
+                status=status.HTTP_403_FORBIDDEN
             )
 
         if not user.is_active or user.is_deleted:
             return Response(
                 {"detail": "This account is inactive. Please contact Avemaria support."},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Enforce student role - block administrators from signing in through the student portal
+        if user.role != 'student' or user.is_staff or user.is_superuser:
+            return Response(
+                {"detail": "Access denied. Administrator accounts cannot sign in through the student learning portal."},
+                status=status.HTTP_403_FORBIDDEN
             )
 
         # Retrieve or link Student profile
@@ -1331,7 +1367,8 @@ class StudentDocumentDeleteView(APIView):
             val_uuid = uuid.UUID(pk_str)
             doc = StudentDocument.objects.filter(student=student, uuid=val_uuid).first()
         except (ValueError, AttributeError):
-            pass
+
+
         if not doc and pk_str.isdigit():
             doc = StudentDocument.objects.filter(student=student, id=int(pk_str)).first()
         if not doc:
@@ -1990,8 +2027,9 @@ class StudentPurchasedResourcesView(APIView):
 class StudentPurchasedResourceDetailView(APIView):
     """
     Returns full interactive resource study details and downloadable files for a single purchased resource.
+    For free resources, allows viewing without requiring login or purchase.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     serializer_class = StudentPurchasedResourceDetailSerializer
 
     @extend_schema(
@@ -2001,6 +2039,34 @@ class StudentPurchasedResourceDetailView(APIView):
         responses={200: StudentPurchasedResourceDetailSerializer, 404: OpenApiResponse(description="Resource purchase not found")}
     )
     def get(self, request, pk):
+        resource = _resolve_paid_resource(pk)
+
+        # Allow instant access to free resources without login
+        if resource and (resource.price is None or resource.price <= 0):
+            student = getattr(request.user, 'student_profile', None) if request.user and request.user.is_authenticated else None
+            if student:
+                purchase, _ = ResourcePurchase.objects.get_or_create(
+                    student=student,
+                    resource=resource,
+                    defaults={'amount_paid': 0, 'status': 'active', 'payment_status': 'paid'}
+                )
+            else:
+                purchase = ResourcePurchase(
+                    resource=resource,
+                    amount_paid=0.00,
+                    status='active',
+                    payment_status='paid'
+                )
+            serializer = StudentPurchasedResourceDetailSerializer(purchase, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # For paid resources, require authentication
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided. Please sign in to access this resource."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
         student = getattr(request.user, 'student_profile', None)
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2022,8 +2088,9 @@ class StudentResourcePurchaseView(APIView):
     """
     Allows a student to purchase / unlock a paid study resource.
     Takes 'resource_id' or 'resource_slug' in the request body.
+    Free resources can be unlocked directly without requiring login.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     serializer_class = StudentResourcePurchaseSerializer
 
     @extend_schema(
@@ -2061,6 +2128,24 @@ class StudentResourcePurchaseView(APIView):
             return Response(
                 {"detail": "Resource not found or is currently unavailable."},
                 status=status.HTTP_404_NOT_FOUND
+            )
+
+        is_free = (resource.price is None or resource.price <= 0)
+
+        # Handle unauthenticated user
+        if not request.user or not request.user.is_authenticated:
+            if is_free:
+                fake_purchase = ResourcePurchase(resource=resource, amount_paid=0.00, status='active', payment_status='paid')
+                serializer = ResourcePurchaseSerializer(fake_purchase, context={'request': request})
+                return Response({
+                    "status": "success",
+                    "message": f"Free resource unlocked: {resource.title}.",
+                    "receipt_emailed": False,
+                    "purchase": serializer.data
+                }, status=status.HTTP_200_OK)
+            return Response(
+                {"detail": "Authentication credentials were not provided. Please sign in to purchase this resource."},
+                status=status.HTTP_401_UNAUTHORIZED
             )
 
         order_id = request.data.get('order_id', '')
@@ -2107,15 +2192,16 @@ class StudentResourcePurchaseView(APIView):
 
 class StudentResourceAccessView(APIView):
     """
-    Logs an access or download action for a purchased resource and returns access/file URLs.
+    Logs an access or download action for a resource and returns access/file URLs.
+    Free resources can be accessed directly without login.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     serializer_class = StudentResourceAccessResponseSerializer
 
     @extend_schema(
         tags=['Student Resource Purchases'],
         summary="Access Purchased Resource Files (POST)",
-        description="Logs an access event and returns resource details and PDF file download URLs.",
+        description="Logs an access event and returns resource details and PDF file download URLs. Free resources are open to everyone without login.",
         responses={
             200: StudentResourceAccessResponseSerializer,
             403: OpenApiResponse(description="Resource not purchased or access expired"),
@@ -2123,6 +2209,47 @@ class StudentResourceAccessView(APIView):
         }
     )
     def post(self, request, resource_id):
+        resource = _resolve_paid_resource(resource_id)
+
+        # 1. Handle Free Resource Access (no login or purchase required)
+        if resource and (resource.price is None or resource.price <= 0):
+            student = getattr(request.user, 'student_profile', None) if request.user and request.user.is_authenticated else None
+            if student:
+                purchase, _ = ResourcePurchase.objects.get_or_create(
+                    student=student,
+                    resource=resource,
+                    defaults={'amount_paid': 0, 'status': 'active', 'payment_status': 'paid'}
+                )
+                purchase.download_count += 1
+                purchase.last_accessed_at = timezone.now()
+                purchase.save(update_fields=['download_count', 'last_accessed_at'])
+                serializer = ResourcePurchaseSerializer(purchase, context={'request': request})
+                return Response({
+                    "status": "success",
+                    "message": "Resource access verified.",
+                    "purchase": serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                fake_purchase = ResourcePurchase(
+                    resource=resource,
+                    amount_paid=0.00,
+                    status='active',
+                    payment_status='paid'
+                )
+                serializer = ResourcePurchaseSerializer(fake_purchase, context={'request': request})
+                return Response({
+                    "status": "success",
+                    "message": "Free resource access granted.",
+                    "purchase": serializer.data
+                }, status=status.HTTP_200_OK)
+
+        # 2. Handle Paid Resource Access (requires authentication & purchase)
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {"detail": "Authentication credentials were not provided. Please sign in to access this resource."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
         student = getattr(request.user, 'student_profile', None)
         if not student:
             return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2458,7 +2585,7 @@ class StudentLogoutView(APIView):
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception:
-                pass
+    
 
         return Response({
             "status": "success",

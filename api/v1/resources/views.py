@@ -54,6 +54,22 @@ class PaidResourceViewSet(viewsets.ModelViewSet):
             qs = qs.filter(models.Q(category__iexact=category_param) | models.Q(category__iexact=slug_variant))
 
         resource_type_param = self.request.query_params.get('resource_type') or self.request.query_params.get('type')
+        pricing_param = (
+            self.request.query_params.get('pricing') or
+            self.request.query_params.get('price_type') or
+            self.request.query_params.get('price')
+        )
+        if resource_type_param and resource_type_param.strip().lower() in ['free', 'paid']:
+            if not pricing_param:
+                pricing_param = resource_type_param
+            resource_type_param = None
+
+        if pricing_param and pricing_param.strip().lower() != 'all':
+            p_val = pricing_param.strip().lower()
+            if p_val in ['free', '0', '0.00', 'nil', 'free of cost']:
+                qs = qs.filter(models.Q(price__lte=0) | models.Q(price__isnull=True))
+            elif p_val in ['paid', 'premium']:
+                qs = qs.filter(price__gt=0)
         if resource_type_param and resource_type_param.strip().lower() != 'all':
             rt_val = resource_type_param.strip().lower()
             if rt_val in ['note', 'notes', 'study notes', 'study note']:

@@ -34,6 +34,38 @@ def _clean_faculty_name_and_qual(faculty_obj, stored_name, stored_qual, stored_t
     return name, qual
 
 
+def _normalize_specialities(raw):
+    """
+    Normalizes specialities into a clean list of strings.
+    Handles lists, dicts, comma-separated strings, and JSON strings.
+    """
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        out = []
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip())
+            elif isinstance(item, dict):
+                val = item.get('name') or item.get('title') or item.get('speciality') or ''
+                if val and str(val).strip():
+                    out.append(str(val).strip())
+        return out
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        if s.startswith('[') and s.endswith(']'):
+            try:
+                import json
+                parsed = json.loads(s)
+                return _normalize_specialities(parsed)
+            except Exception:
+                pass
+        return [part.strip() for part in s.split(',') if part.strip()]
+    return []
+
+
 def _normalize_faqs(raw_faqs):
     """
     Normalizes a list of FAQ dictionaries.
@@ -353,18 +385,56 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         ordered_ret['faculty_name'] = faculty_name
         ordered_ret['faculty_qualification'] = faculty_qualification
 
+        request = self.context.get('request')
+        fac_image_url = None
+        if instance.faculty and instance.faculty.image:
+            fac_image_url = request.build_absolute_uri(instance.faculty.image.url) if request else instance.faculty.image.url
+        elif instance.faculty_image:
+            fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
+
+        specialities_list = []
+        department_val = ''
+        fac_uuid = None
         if instance.faculty:
+            specialities_list = _normalize_specialities(getattr(instance.faculty, 'specialities', None))
+            department_val = instance.faculty.department or ''
+            fac_uuid = str(instance.faculty.uuid) if hasattr(instance.faculty, 'uuid') else str(instance.faculty.id)
             ordered_ret['faculty_title'] = instance.faculty.title or instance.faculty_title or ''
             ordered_ret['faculty_experience'] = instance.faculty.experience or instance.faculty_experience or ''
             ordered_ret['faculty_bio'] = instance.faculty.bio or instance.faculty_bio or ''
-
-            request = self.context.get('request')
-            fac_image_url = None
-            if instance.faculty.image:
-                fac_image_url = request.build_absolute_uri(instance.faculty.image.url) if request else instance.faculty.image.url
-            elif instance.faculty_image:
-                fac_image_url = request.build_absolute_uri(instance.faculty_image.url) if request else instance.faculty_image.url
             ordered_ret['faculty_image'] = fac_image_url
+
+        ordered_ret['faculty_id'] = instance.faculty_id
+        ordered_ret['faculty_specialities'] = specialities_list
+        ordered_ret['specialities'] = specialities_list
+        ordered_ret['faculty_department'] = department_val
+
+        faculty_item = {
+            "id": fac_uuid,
+            "faculty_id": instance.faculty_id,
+            "name": faculty_name,
+            "faculty_name": faculty_name,
+            "title": ordered_ret.get('faculty_title', '') or '',
+            "faculty_title": ordered_ret.get('faculty_title', '') or '',
+            "qualification": faculty_qualification or '',
+            "faculty_qualification": faculty_qualification or '',
+            "experience": ordered_ret.get('faculty_experience', '') or '',
+            "faculty_experience": ordered_ret.get('faculty_experience', '') or '',
+            "bio": ordered_ret.get('faculty_bio', '') or '',
+            "faculty_bio": ordered_ret.get('faculty_bio', '') or '',
+            "department": department_val,
+            "specialities": specialities_list,
+            "faculty_specialities": specialities_list,
+            "speciality": specialities_list,
+            "image": fac_image_url,
+            "faculty_image": fac_image_url,
+            "faculty_display": ordered_ret.get('faculty_display', faculty_name),
+            "status": (instance.faculty.status if instance.faculty else 'active') or 'active',
+        }
+
+        ordered_ret['faculty_details'] = faculty_item
+        ordered_ret['faculty_list'] = [faculty_item] if (instance.faculty or instance.faculty_name) else []
+        ordered_ret['faculty'] = [faculty_item] if (instance.faculty or instance.faculty_name) else []
 
         return ordered_ret
 

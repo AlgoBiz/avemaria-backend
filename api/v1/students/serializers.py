@@ -481,6 +481,8 @@ class StudentDetailSerializer(StudentOrderFieldsMixin, serializers.ModelSerializ
             'country_of_issue',
             'passport_expiry_date',
             'status',
+            'is_suspended',
+            'suspension_reason',
             'registered_date',
             'purchase_date',
             'is_active',
@@ -629,3 +631,19 @@ class InvoiceDataResponseSerializer(serializers.Serializer):
     totals = InvoiceTotalsSerializer()
     verified_badge = serializers.DictField()
     footer = serializers.DictField()
+
+
+class StudentSuspendSerializer(serializers.Serializer):
+    student_id = serializers.CharField(required=False, allow_blank=True, help_text="Student ID, UUID, or slug (if calling list-level endpoint)")
+    suspended = serializers.BooleanField(required=False, default=True, help_text="True to suspend, False to reactivate")
+    is_suspended = serializers.BooleanField(required=False, help_text="Alias for suspended")
+    message = serializers.CharField(required=False, allow_blank=True, default='', help_text="Optional custom suspension message/reason displayed to student")
+    reason = serializers.CharField(required=False, allow_blank=True, default='', help_text="Alias for message")
+
+
+class StudentSuspendResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField()
+    is_suspended = serializers.BooleanField()
+    suspension_message = serializers.CharField(required=False, allow_blank=True)
+    student = serializers.DictField()
