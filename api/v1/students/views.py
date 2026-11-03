@@ -208,12 +208,14 @@ class StudentViewSet(viewsets.ModelViewSet):
             if not message:
                 message = "Your account has been suspended. Please contact the administrator for assistance."
             student.is_suspended = True
+            student.status = 'inactive'
             student.suspension_reason = message
         else:
             student.is_suspended = False
+            student.status = 'active'
             student.suspension_reason = ""
 
-        student.save(update_fields=['is_suspended', 'suspension_reason', 'updated_at'])
+        student.save(update_fields=['is_suspended', 'status', 'suspension_reason', 'updated_at'])
 
         status_text = "suspended" if student.is_suspended else "reactivated"
         return Response({
