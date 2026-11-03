@@ -88,7 +88,7 @@ class FacultyViewSet(viewsets.ModelViewSet):
 
         if self.request.user and self.request.user.is_authenticated:
             return qs
-        return qs.filter(is_published=True)
+        return qs.filter(models.Q(is_published=True) | models.Q(status='active', is_active=True))
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve', 'stats', 'minimal']:
@@ -98,7 +98,9 @@ class FacultyViewSet(viewsets.ModelViewSet):
     def get_object(self):
         from django.shortcuts import get_object_or_404
         lookup = self.kwargs.get('slug') or self.kwargs.get('pk')
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = Faculty.objects.filter(is_deleted=False)
+        if not (self.request.user and self.request.user.is_authenticated):
+            queryset = queryset.filter(models.Q(is_published=True) | models.Q(status='active', is_active=True) | models.Q(is_active=True))
         if lookup is not None:
             l_str = str(lookup).strip()
             if l_str.isdigit():

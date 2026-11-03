@@ -21,6 +21,8 @@ from .serializers import (
     StudentContactResponseSerializer,
     StudentStatsResponseSerializer,
     InvoiceDataResponseSerializer,
+    StudentSuspendSerializer,
+    StudentSuspendResponseSerializer,
 )
 
 
@@ -135,6 +137,98 @@ class StudentViewSet(viewsets.ModelViewSet):
     def create_student(self, request, *args, **kwargs):
         """Create student candidate endpoint at /api/v1/students/create/"""
         return self.create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Suspend or reactivate a student account",
+        description="Suspend or reactivate a student. Pass suspended=true/false and an optional custom message displayed to the student.",
+        request=StudentSuspendSerializer,
+        responses={200: StudentSuspendResponseSerializer}
+    )
+    @action(detail=True, methods=['post', 'patch'], url_path='suspend')
+    def suspend(self, request, pk=None):
+        student = self.get_object()
+        return self._handle_suspension(request, student)
+
+    @extend_schema(
+        summary="Suspend or reactivate student by ID / Email",
+        description="Collection-level suspension endpoint. Accepts student_id/id/email in request body or query params with suspended=true/false and optional message.",
+        request=StudentSuspendSerializer,
+        responses={200: StudentSuspendResponseSerializer}
+    )
+    @action(detail=False, methods=['post', 'patch'], url_path='suspend')
+    def suspend_student(self, request):
+        return self._handle_suspension(request, None)
+
+    def _handle_suspension(self, request, student=None):
+        if hasattr(request.user, 'role') and request.user.role == 'student' and not (request.user.is_staff or request.user.is_superuser):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only administrators can suspend or reactivate student accounts.")
+
+        data = request.data or {}
+        if student is None:
+            raw_id = data.get('student_id') or data.get('id') or data.get('student') or request.query_params.get('student_id') or request.query_params.get('id')
+            email = data.get('email') or request.query_params.get('email')
+
+            qs = Student.objects.filter(is_deleted=False)
+            if raw_id:
+                try:
+                    val_uuid = uuid.UUID(str(raw_id))
+                    student = qs.filter(uuid=val_uuid).first()
+                except (ValueError, AttributeError):
+                    pass
+                if not student and str(raw_id).isdigit():
+                    student = qs.filter(id=int(raw_id)).first()
+                if not student:
+                    student = qs.filter(slug=str(raw_id)).first()
+            elif email:
+                student = qs.filter(email__iexact=str(email).strip()).first()
+
+            if not student:
+                return Response(
+                    {"detail": "Student not found. Please provide a valid 'student_id' or 'email'."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        # Parse suspended flag (default is True if not specified)
+        suspended = data.get('suspended')
+        if suspended is None:
+            suspended = data.get('is_suspended')
+        if suspended is None:
+            suspended = True
+        elif isinstance(suspended, str):
+            suspended = suspended.strip().lower() in ['true', '1', 'yes']
+        else:
+            suspended = bool(suspended)
+
+        # Parse message / reason
+        message = data.get('message') or data.get('reason') or ''
+        message = str(message).strip()
+
+        if suspended:
+            if not message:
+                message = "Your account has been suspended. Please contact the administrator for assistance."
+            student.is_suspended = True
+            student.suspension_reason = message
+        else:
+            student.is_suspended = False
+            student.suspension_reason = ""
+
+        student.save(update_fields=['is_suspended', 'suspension_reason', 'updated_at'])
+
+        status_text = "suspended" if student.is_suspended else "reactivated"
+        return Response({
+            "status": "success",
+            "message": f"Student '{student.name}' has been {status_text} successfully.",
+            "is_suspended": student.is_suspended,
+            "suspension_message": student.suspension_reason,
+            "student": {
+                "id": str(student.uuid),
+                "name": student.name,
+                "email": student.email,
+                "is_suspended": student.is_suspended,
+                "suspension_message": student.suspension_reason
+            }
+        }, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Queue contact dispatch to student",

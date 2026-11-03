@@ -38,7 +38,7 @@ class DashboardOverviewView(APIView):
 
         # Newly added enquiries and courses appear first (-created_at, -id)
         recent_enquiries = Enquiry.objects.filter(is_deleted=False)[:5]
-        programmes_catalog = Course.objects.filter(is_published=True, is_deleted=False).order_by('-is_featured', '-created_at', '-id')[:5]
+        programmes_catalog = Course.objects.filter(is_published=True, is_deleted=False).order_by('-is_featured', '-created_at', '-id')[:10]
 
         enquiries_data = EnquiryAdminSerializer(recent_enquiries, many=True).data
         for idx, item in enumerate(enquiries_data, start=1):
@@ -52,7 +52,11 @@ class DashboardOverviewView(APIView):
 
         courses_data = CourseListSerializer(programmes_catalog, many=True, context={'request': request}).data
         for item in courses_data:
-            item['fee_formatted'] = item.get('fee', '')
+            fee_val = item.get('fee', '')
+            if isinstance(fee_val, str) and 'GBP' in fee_val:
+                fee_val = fee_val.replace('GBP', '£').replace('£ ', '£')
+            item['fee'] = fee_val
+            item['fee_formatted'] = fee_val
             dur = item.get('duration', '')
             mode = item.get('learning_mode', '')
             parts = [p for p in [dur, mode.capitalize() if mode else ''] if p]
