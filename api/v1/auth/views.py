@@ -857,6 +857,22 @@ class StudentLoginView(APIView):
         if not user or not user.check_password(password):
             return Response(
                 {"detail": "Invalid email address or password. Please try again."},
+            )
+
+        # Check if student account is suspended
+        student = getattr(user, 'student_profile', None)
+        if not student:
+            from apps.students.models import Student
+            student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
+        if student and getattr(student, 'is_suspended', False):
+            reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
+            return Response(
+                {"detail": reason},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+
+
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1351,7 +1367,7 @@ class StudentDocumentDeleteView(APIView):
             val_uuid = uuid.UUID(pk_str)
             doc = StudentDocument.objects.filter(student=student, uuid=val_uuid).first()
         except (ValueError, AttributeError):
-            pass
+
 
         if not doc and pk_str.isdigit():
             doc = StudentDocument.objects.filter(student=student, id=int(pk_str)).first()
@@ -2569,7 +2585,7 @@ class StudentLogoutView(APIView):
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception:
-                pass
+    
 
         return Response({
             "status": "success",
