@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import logging
 import uuid
@@ -28,6 +28,7 @@ from .serializers import (
     VerifySessionResponseSerializer,
     StripeWebhookPayloadSerializer,
     PaymentTransactionSerializer,
+    PaymentTransactionDetailSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -668,9 +669,128 @@ class StudentPaymentTransactionsView(APIView):
     )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
-        if not student:
+        if not student and getattr(request.user, 'email', None):
+            student = Student.objects.filter(email__iexact=request.user.email, is_deleted=False).first()
+
+        is_admin = getattr(request.user, 'is_staff', False) or getattr(request.user, 'role', None) == 'admin'
+        if not student and not is_admin:
             return Response([], status=status.HTTP_200_OK)
 
-        transactions = PaymentTransaction.objects.filter(student=student).order_by('-created_at')
+        if is_admin:
+            transactions = PaymentTransaction.objects.all().order_by('-created_at')
+        else:
+            transactions = PaymentTransaction.objects.filter(student=student).order_by('-created_at')
         serializer = PaymentTransactionSerializer(transactions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class StudentPaymentTransactionDetailView(APIView):
+    """
+    Retrieves full transaction details for a single payment by ID or UUID.
+    Supports lookup by PaymentTransaction UUID, integer ID, Stripe session ID,
+    receipt number, or ResourcePurchase/CourseEnrollment UUID.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PaymentTransactionDetailSerializer
+
+    @extend_schema(
+        tags=['USER SIDE - Stripe Payments & Checkout'],
+        summary="Get Single Payment Transaction Detail",
+        description="Retrieves comprehensive details of a single transaction by ID, UUID, Stripe session ID, or receipt number.",
+        parameters=[
+            OpenApiParameter('id', str, OpenApiParameter.PATH, description="Transaction ID, UUID, Session ID, or Receipt Number")
+        ],
+        responses={
+            200: PaymentTransactionDetailSerializer,
+            404: OpenApiResponse(description="Transaction not found")
+        }
+    )
+    def get(self, request, id):
+        student = getattr(request.user, 'student_profile', None)
+        if not student and getattr(request.user, 'email', None):
+            student = Student.objects.filter(email__iexact=request.user.email, is_deleted=False).first()
+
+        is_admin = getattr(request.user, 'is_staff', False) or getattr(request.user, 'role', None) == 'admin'
+        if not student and not is_admin:
+            return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        lookup = str(id).strip()
+        parsed_uuid = None
+        try:
+            parsed_uuid = uuid.UUID(lookup)
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+        # 1. Look up PaymentTransaction directly
+        qs = PaymentTransaction.objects.all() if is_admin else PaymentTransaction.objects.filter(student=student)
+        tx = None
+
+        if parsed_uuid:
+            tx = qs.filter(uuid=parsed_uuid).first()
+
+        if not tx and lookup.isdigit():
+            tx = qs.filter(id=int(lookup)).first()
+
+        if not tx:
+            tx = qs.filter(stripe_session_id=lookup).first()
+
+        if not tx:
+            tx = qs.filter(receipt_number__iexact=lookup).first()
+
+        # 2. Check ResourcePurchase or CourseEnrollment if queried with their UUID
+        if not tx and parsed_uuid:
+            pur_qs = ResourcePurchase.objects.all() if is_admin else ResourcePurchase.objects.filter(student=student)
+            purchase = pur_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
+            if purchase:
+                if purchase.order_id:
+                    tx = qs.filter(stripe_session_id=purchase.order_id).first()
+                if not tx and purchase.receipt_number:
+                    tx = qs.filter(receipt_number=purchase.receipt_number).first()
+                if not tx:
+                    tx, _ = PaymentTransaction.objects.get_or_create(
+                        student=purchase.student,
+                        item_type='resource',
+                        item_id=purchase.resource_id,
+                        defaults={
+                            'item_title': purchase.resource.title if purchase.resource else 'Study Resource',
+                            'amount': purchase.amount_paid or (purchase.resource.price if purchase.resource else Decimal('0.00')),
+                            'currency': get_stripe_currency(purchase.currency),
+                            'status': 'succeeded' if purchase.payment_status == 'paid' else purchase.payment_status,
+                            'stripe_session_id': purchase.order_id or '',
+                            'receipt_number': purchase.receipt_number or '',
+                            'completed_at': purchase.purchased_at or purchase.created_at,
+                        }
+                    )
+
+            if not tx:
+                enr_qs = CourseEnrollment.objects.all() if is_admin else CourseEnrollment.objects.filter(student=student)
+                enrollment = enr_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
+                if enrollment:
+                    if enrollment.order_id:
+                        tx = qs.filter(stripe_session_id=enrollment.order_id).first()
+                    if not tx and enrollment.receipt_number:
+                        tx = qs.filter(receipt_number=enrollment.receipt_number).first()
+                    if not tx:
+                        tx, _ = PaymentTransaction.objects.get_or_create(
+                            student=enrollment.student,
+                            item_type='course',
+                            item_id=enrollment.course_id,
+                            defaults={
+                                'item_title': enrollment.course.title if enrollment.course else 'Course',
+                                'amount': enrollment.amount_paid or (enrollment.course.fee if enrollment.course else Decimal('0.00')),
+                                'currency': get_stripe_currency(enrollment.currency),
+                                'status': 'succeeded' if enrollment.payment_status == 'paid' else enrollment.payment_status,
+                                'stripe_session_id': enrollment.order_id or '',
+                                'receipt_number': enrollment.receipt_number or '',
+                                'completed_at': enrollment.enrolled_at or enrollment.created_at,
+                            }
+                        )
+
+        if not tx:
+            return Response(
+                {"detail": f"Payment transaction '{id}' not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = PaymentTransactionDetailSerializer(tx)
         return Response(serializer.data, status=status.HTTP_200_OK)
