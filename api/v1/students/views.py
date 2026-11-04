@@ -206,7 +206,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         if suspended:
             if not message:
-                message = "Your account has been suspended. Please contact the administrator for assistance."
+                message = "Your account has been suspended. Please contact administrator."
             student.is_suspended = True
             student.status = 'inactive'
             student.suspension_reason = message

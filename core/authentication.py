@@ -40,9 +40,15 @@ class SafeJWTAuthentication(JWTAuthentication):
                     from apps.students.models import Student
                     student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
                 if student and getattr(student, 'is_suspended', False):
-                    reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
+                    reason = (student.suspension_reason or '').strip()
+                    if not reason or any(k in reason.lower() for k in ['conduct', 'terms', 'policy', 'violation']):
+                        detail_msg = "Your account has been suspended. Please contact administrator."
+                    elif 'contact' in reason.lower() and 'suspended' in reason.lower():
+                        detail_msg = reason
+                    else:
+                        detail_msg = "Your account has been suspended. Please contact administrator."
                     from rest_framework.exceptions import PermissionDenied
-                    raise PermissionDenied({"detail": reason})
+                    raise PermissionDenied({"detail": detail_msg})
             return auth_res
         except (InvalidToken, AuthenticationFailed):
             # Gracefully treat invalid / expired tokens as unauthenticated (AnonymousUser)

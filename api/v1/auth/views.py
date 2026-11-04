@@ -868,9 +868,15 @@ class StudentLoginView(APIView):
             from apps.students.models import Student
             student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
         if student and getattr(student, 'is_suspended', False):
-            reason = student.suspension_reason or "Your account has been suspended. Please contact the administrator for assistance."
+            reason = (student.suspension_reason or '').strip()
+            if not reason or any(k in reason.lower() for k in ['conduct', 'terms', 'policy', 'violation']):
+                detail_msg = "Your account has been suspended. Please contact administrator."
+            elif 'contact' in reason.lower() and 'suspended' in reason.lower():
+                detail_msg = reason
+            else:
+                detail_msg = "Your account has been suspended. Please contact administrator."
             return Response(
-                {"detail": reason},
+                {"detail": detail_msg},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -1413,7 +1419,7 @@ class AdminLoginView(APIView):
         # Enforce administrator privileges
         if not (user.is_staff or user.role in ['super_admin', 'admin']):
             return Response(
-                {"detail": "Access denied. This portal is restricted to Avemaria administrators."},
+                {"detail": "Access denied. This portal is restricted to other users."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
