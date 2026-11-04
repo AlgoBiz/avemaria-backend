@@ -154,7 +154,7 @@ def get_student_invoice_payload(student, request=None):
             'issue_date': latest_date_str,
             'payment_method': 'Card / Stripe Online',
             'tax_rate': 'Inclusive of 18% GST (SAC: 999293)',
-            'status': 'Active & Verified on Portal'
+            'status': 'Suspended on Portal' if getattr(student, 'is_suspended', False) else 'Active & Verified on Portal'
         },
         'billed_to': {
             'name': student.name,
@@ -371,28 +371,38 @@ class StudentViewSet(viewsets.ModelViewSet):
             student.is_suspended = True
             student.status = 'inactive'
             student.suspension_reason = message
+            student.is_active = False
+            if student.user:
+                student.user.is_active = False
+                student.user.save(update_fields=['is_active'])
         else:
             student.is_suspended = False
             student.status = 'active'
             student.suspension_reason = ""
+            student.is_active = True
+            if student.user:
+                student.user.is_active = True
+                student.user.save(update_fields=['is_active'])
 
-        student.save(update_fields=['is_suspended', 'status', 'suspension_reason', 'updated_at'])
+        student.save(update_fields=['is_suspended', 'status', 'suspension_reason', 'is_active', 'updated_at'])
 
         status_text = "suspended" if student.is_suspended else "reactivated"
         return Response({
             "status": "success",
             "message": f"Student '{student.name}' has been {status_text} successfully.",
             "is_suspended": student.is_suspended,
+            "status": "suspended" if student.is_suspended else student.status,
             "suspension_message": student.suspension_reason,
             "student": {
                 "id": str(student.uuid),
                 "name": student.name,
                 "email": student.email,
+                "status": "suspended" if student.is_suspended else student.status,
                 "is_suspended": student.is_suspended,
+                "is_active": student.is_active,
                 "suspension_message": student.suspension_reason
             }
         }, status=status.HTTP_200_OK)
-
     @extend_schema(
         summary="Queue contact dispatch to student",
         description="Queue contact dispatch email/notification for this student",
