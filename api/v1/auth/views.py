@@ -18,6 +18,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
+from core.pagination import StandardResultsSetPagination, paginate_response
 
 
 from apps.accounts.models import User, PasswordResetOTP
@@ -1792,18 +1793,28 @@ class StudentCoursesView(APIView):
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
-            return Response({"count": 0, "results": []}, status=status.HTTP_200_OK)
+            return Response({
+                "count": 0,
+                "total_pages": 1,
+                "current_page": 1,
+                "page_size": 15,
+                "next": None,
+                "previous": None,
+                "results": []
+            }, status=status.HTTP_200_OK)
 
         enrollments = CourseEnrollment.objects.filter(
             student=student,
             is_deleted=False
         ).select_related('course', 'course__category').order_by('-enrolled_at')
 
-        serializer = CourseEnrollmentSerializer(enrollments, many=True, context={'request': request})
-        return Response({
-            "count": enrollments.count(),
-            "results": serializer.data
-        }, status=status.HTTP_200_OK)
+        return paginate_response(
+            enrollments,
+            request,
+            serializer_class=CourseEnrollmentSerializer,
+            context={'request': request},
+            page_size=15
+        )
 
 
 def _resolve_course(identifier):
@@ -1993,7 +2004,15 @@ class StudentPurchasedResourcesView(APIView):
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
-            return Response({"count": 0, "results": []}, status=status.HTTP_200_OK)
+            return Response({
+                "count": 0,
+                "total_pages": 1,
+                "current_page": 1,
+                "page_size": 15,
+                "next": None,
+                "previous": None,
+                "results": []
+            }, status=status.HTTP_200_OK)
 
         category = request.query_params.get('category')
         search = request.query_params.get('search')
@@ -2011,11 +2030,13 @@ class StudentPurchasedResourcesView(APIView):
             )
 
         purchases = purchases.order_by('-purchased_at')
-        serializer = StudentPurchasedResourceCardSerializer(purchases, many=True, context={'request': request})
-        return Response({
-            "count": purchases.count(),
-            "results": serializer.data
-        }, status=status.HTTP_200_OK)
+        return paginate_response(
+            purchases,
+            request,
+            serializer_class=StudentPurchasedResourceCardSerializer,
+            context={'request': request},
+            page_size=15
+        )
 
 
 class StudentPurchasedResourceDetailView(APIView):
@@ -2303,7 +2324,15 @@ class StudentPurchaseHistoryView(APIView):
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
         if not student:
-            return Response({"count": 0, "results": []}, status=status.HTTP_200_OK)
+            return Response({
+                "count": 0,
+                "total_pages": 1,
+                "current_page": 1,
+                "page_size": 15,
+                "next": None,
+                "previous": None,
+                "results": []
+            }, status=status.HTTP_200_OK)
 
         status_param = request.query_params.get('status')
         search = request.query_params.get('search')
@@ -2320,15 +2349,29 @@ class StudentPurchaseHistoryView(APIView):
                 Q(resource__title__icontains=search) | Q(order_id__icontains=search)
             )
 
-        purchases = list(purchases.order_by('-purchased_at'))
+        purchases_qs = purchases.order_by('-purchased_at')
+        paginator = StandardResultsSetPagination()
+        paginator.page_size = 15
+        page = paginator.paginate_queryset(purchases_qs, request)
+        if page is not None:
+            effective_page_size = paginator.get_page_size(request) or paginator.page_size
+            start_no = (paginator.page.number - 1) * effective_page_size + 1
+            for offset, item in enumerate(page):
+                item.sl_no = start_no + offset
+            serializer = StudentPurchaseHistorySerializer(page, many=True, context={'request': request})
+            return paginator.get_paginated_response(serializer.data)
 
-        # Assign 1-indexed SL. NO
-        for idx, item in enumerate(purchases, start=1):
+        purchases_list = list(purchases_qs)
+        for idx, item in enumerate(purchases_list, start=1):
             item.sl_no = idx
-
-        serializer = StudentPurchaseHistorySerializer(purchases, many=True, context={'request': request})
+        serializer = StudentPurchaseHistorySerializer(purchases_list, many=True, context={'request': request})
         return Response({
-            "count": len(purchases),
+            "count": len(purchases_list),
+            "total_pages": 1,
+            "current_page": 1,
+            "page_size": 15,
+            "next": None,
+            "previous": None,
             "results": serializer.data
         }, status=status.HTTP_200_OK)
 
@@ -2421,6 +2464,12 @@ class StudentPaymentDetailsView(APIView):
                 "total_spent": "0.00",
                 "completed_payments": 0,
                 "pending_payments": 0,
+                "count": 0,
+                "total_pages": 1,
+                "current_page": 1,
+                "page_size": 15,
+                "next": None,
+                "previous": None,
                 "results": []
             }, status=status.HTTP_200_OK)
 
@@ -2534,12 +2583,18 @@ class StudentPaymentDetailsView(APIView):
         for item in results_list:
             item.pop('_sort_dt', None)
 
-        return Response({
+        extra_kpis = {
             "total_spent": f"{total_val:.2f}",
             "completed_payments": completed_count,
             "pending_payments": pending_count,
-            "results": results_list
-        }, status=status.HTTP_200_OK)
+        }
+
+        return paginate_response(
+            results_list,
+            request,
+            page_size=15,
+            extra=extra_kpis
+        )
 
 
 class StudentReceiptsView(APIView):
