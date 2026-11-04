@@ -2412,6 +2412,10 @@ class StudentPaymentDetailsView(APIView):
     )
     def get(self, request):
         student = getattr(request.user, 'student_profile', None)
+        if not student and getattr(request.user, 'email', None):
+            from apps.students.models import Student
+            student = Student.objects.filter(email__iexact=request.user.email, is_deleted=False).first()
+
         if not student:
             return Response({
                 "total_spent": "0.00",
@@ -2420,24 +2424,121 @@ class StudentPaymentDetailsView(APIView):
                 "results": []
             }, status=status.HTTP_200_OK)
 
+        # 1. Fetch Resource Purchases
         purchases = ResourcePurchase.objects.filter(
             student=student,
             is_deleted=False
-        ).select_related('resource').order_by('-purchased_at')
+        ).select_related('resource')
 
-        paid_purchases = purchases.filter(payment_status='paid')
-        completed_count = paid_purchases.count()
-        pending_count = purchases.filter(payment_status='pending').count()
+        # 2. Fetch Course Enrollments
+        enrollments = CourseEnrollment.objects.filter(
+            student=student,
+            is_deleted=False
+        ).select_related('course', 'course__category')
 
-        total_val = paid_purchases.aggregate(total=Sum('amount_paid'))['total'] or 0.00
+        # Combined counts & totals
+        paid_res = purchases.filter(payment_status='paid')
+        paid_crs = enrollments.filter(payment_status='paid')
 
-        serializer = StudentPaymentDetailItemSerializer(purchases, many=True, context={'request': request})
+        res_total = paid_res.aggregate(total=Sum('amount_paid'))['total'] or 0.00
+        crs_total = paid_crs.aggregate(total=Sum('amount_paid'))['total'] or 0.00
+        total_val = float(res_total) + float(crs_total)
+
+        completed_count = paid_res.count() + paid_crs.count()
+        pending_count = (
+            purchases.filter(payment_status='pending').count() +
+            enrollments.filter(payment_status='pending').count()
+        )
+
+        results_list = []
+
+        # Format Resource Purchases
+        for p in purchases:
+            p_dt = p.purchased_at or p.created_at
+            p_date_str = p_dt.strftime('%d/%m/%Y') if p_dt else ''
+            curr = p.currency or '£'
+            amount_val = float(p.amount_paid) if p.amount_paid is not None else 0.00
+            res_obj = p.resource
+            res_id = str(res_obj.uuid) if res_obj and hasattr(res_obj, 'uuid') else (str(res_obj.id) if res_obj else None)
+            res_title = res_obj.title if res_obj else 'Study Resource'
+            res_slug = res_obj.slug if res_obj else ''
+            res_type = getattr(res_obj, 'resource_type', '') or 'question paper'
+            res_cat = getattr(res_obj, 'category', '') or 'Assignment Solutions'
+            method = p.payment_method or 'stripe'
+            ref = p.order_id or f"RES-{p.id:04d}"
+            status_val = p.payment_status or 'paid'
+
+            results_list.append({
+                'id': str(p.uuid) if hasattr(p, 'uuid') else str(p.id),
+                'item_type': 'resource',
+                'resource_id': res_id,
+                'resource_title': res_title,
+                'resource_slug': res_slug,
+                'resource_type': res_type,
+                'category': res_cat,
+                'payment_method': method,
+                'order_id': ref,
+                'amount': f"{amount_val:.2f}",
+                'amount_formatted': f"{curr}{amount_val:.2f}",
+                'currency': curr,
+                'status': status_val,
+                'payment_line': f"{method} · {ref} · {curr}{amount_val:.2f}",
+                'date': p_date_str,
+                'purchased_date': p_date_str,
+                'purchased_at': p_date_str,
+                '_sort_dt': p_dt
+            })
+
+        # Format Course Enrollments
+        for e in enrollments:
+            e_dt = e.enrolled_at or e.created_at
+            e_date_str = e_dt.strftime('%d/%m/%Y') if e_dt else ''
+            curr = e.currency or '£'
+            amount_val = float(e.amount_paid) if e.amount_paid is not None else float(getattr(e.course, 'fee', 0.0) or 0.0)
+            crs_obj = e.course
+            crs_id = str(crs_obj.uuid) if crs_obj and hasattr(crs_obj, 'uuid') else (str(crs_obj.id) if crs_obj else None)
+            crs_title = crs_obj.title if crs_obj else 'Course Enrollment'
+            crs_slug = crs_obj.slug if crs_obj else ''
+            crs_type = 'course'
+            crs_cat = (crs_obj.category.title if crs_obj and crs_obj.category else '') or 'Course'
+            method = e.payment_method or 'stripe'
+            ref = e.order_id or e.receipt_number or f"CRS-{e.id:04d}"
+            status_val = e.payment_status or 'paid'
+
+            results_list.append({
+                'id': str(e.uuid) if hasattr(e, 'uuid') else str(e.id),
+                'item_type': 'course',
+                'course_id': crs_id,
+                'course_title': crs_title,
+                'course_slug': crs_slug,
+                'resource_id': crs_id,
+                'resource_title': crs_title,
+                'resource_slug': crs_slug,
+                'resource_type': crs_type,
+                'category': crs_cat,
+                'payment_method': method,
+                'order_id': ref,
+                'amount': f"{amount_val:.2f}",
+                'amount_formatted': f"{curr}{amount_val:.2f}",
+                'currency': curr,
+                'status': status_val,
+                'payment_line': f"{method} · {ref} · {curr}{amount_val:.2f}",
+                'date': e_date_str,
+                'purchased_date': e_date_str,
+                'purchased_at': e_date_str,
+                '_sort_dt': e_dt
+            })
+
+        # Sort newest transactions first
+        results_list.sort(key=lambda x: (x['_sort_dt'] or timezone.now()), reverse=True)
+        for item in results_list:
+            item.pop('_sort_dt', None)
 
         return Response({
             "total_spent": f"{total_val:.2f}",
             "completed_payments": completed_count,
             "pending_payments": pending_count,
-            "results": serializer.data
+            "results": results_list
         }, status=status.HTTP_200_OK)
 
 
