@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from apps.students.models import Student
 from apps.resources.models import ResourcePurchase
 from apps.courses.models import CourseEnrollment
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from .serializers import (
     StudentSerializer,
     StudentListSerializer,
@@ -25,6 +25,167 @@ from .serializers import (
     StudentSuspendResponseSerializer,
 )
 
+
+
+def get_student_invoice_payload(student, request=None):
+    """
+    Builds the complete tax invoice dataset containing ALL enrolled courses
+    and purchased resources for the student, with unified 18% GST breakdown.
+    """
+    serializer = StudentSerializer(student, context={'request': request})
+    invoice_number = serializer.get_invoice_number(student)
+
+    # 1. Fetch all course enrollments
+    enrollments = list(
+        CourseEnrollment.objects.filter(student=student, is_deleted=False)
+        .select_related('course')
+        .order_by('-enrolled_at', '-id')
+    )
+
+    # 2. Fetch all resource purchases
+    purchases = list(
+        ResourcePurchase.objects.filter(student=student, is_deleted=False)
+        .select_related('resource')
+        .order_by('-purchased_at', '-id')
+    )
+
+    line_items = []
+    sl_no = 1
+    latest_dt = None
+
+    for e in enrollments:
+        c = e.course
+        title = c.title if c else "Course Enrollment"
+        subtext = "Comprehensive curriculum, lecture coaching, and verified exam pack (SAC 999293)"
+        tot = float(e.amount_paid) if (e.amount_paid is not None and float(e.amount_paid) > 0) else (float(c.fee) if (c and c.fee is not None) else 0.0)
+        base = round(tot / 1.18, 2)
+        gst = round(tot - base, 2)
+        dt = e.enrolled_at or e.created_at
+        if not latest_dt or (dt and dt > latest_dt):
+            latest_dt = dt
+        line_items.append({
+            'sl_no': sl_no,
+            'description': title,
+            'subtext': subtext,
+            'type': 'Course',
+            'sac_hsn': '999293',
+            'qty': 1,
+            'taxable_base': base,
+            'taxable_base_formatted': f"£{base:.2f}",
+            'gst_18': gst,
+            'gst_18_formatted': f"£{gst:.2f}",
+            'total_amount': tot,
+            'total_amount_formatted': f"£{tot:.2f}",
+            'dt': dt,
+        })
+        sl_no += 1
+
+    for p in purchases:
+        r = p.resource
+        title = r.title if r else "Study Resource"
+        subtext = "Study resource material, revision guide, and verified exam practice pack (SAC 999293)"
+        tot = float(p.amount_paid) if (p.amount_paid is not None and float(p.amount_paid) > 0) else (float(r.price) if (r and r.price is not None) else 0.0)
+        base = round(tot / 1.18, 2)
+        gst = round(tot - base, 2)
+        dt = p.purchased_at or p.created_at
+        if not latest_dt or (dt and dt > latest_dt):
+            latest_dt = dt
+        line_items.append({
+            'sl_no': sl_no,
+            'description': title,
+            'subtext': subtext,
+            'type': 'Resource',
+            'sac_hsn': '999293',
+            'qty': 1,
+            'taxable_base': base,
+            'taxable_base_formatted': f"£{base:.2f}",
+            'gst_18': gst,
+            'gst_18_formatted': f"£{gst:.2f}",
+            'total_amount': tot,
+            'total_amount_formatted': f"£{tot:.2f}",
+            'dt': dt,
+        })
+        sl_no += 1
+
+    if not line_items:
+        tot = 420.0
+        base = round(tot / 1.18, 2)
+        gst = round(tot - base, 2)
+        dt = student.registered_date or student.created_at
+        latest_dt = dt
+        line_items.append({
+            'sl_no': 1,
+            'description': 'Gulf Licensing Preparation — DHA · HAAD · MOH · QCHP',
+            'subtext': 'Medical laboratory science training curriculum, verified assessment, and study pack',
+            'type': 'Course',
+            'sac_hsn': '999293',
+            'qty': 1,
+            'taxable_base': base,
+            'taxable_base_formatted': f"£{base:.2f}",
+            'gst_18': gst,
+            'gst_18_formatted': f"£{gst:.2f}",
+            'total_amount': tot,
+            'total_amount_formatted': f"£{tot:.2f}",
+            'dt': dt,
+        })
+
+    total_amount = round(sum(item['total_amount'] for item in line_items), 2)
+    base_amount = round(sum(item['taxable_base'] for item in line_items), 2)
+    gst_amount = round(total_amount - base_amount, 2)
+    cgst_9 = round(gst_amount / 2, 2)
+    sgst_9 = round(gst_amount - cgst_9, 2)
+
+    latest_date_str = latest_dt.strftime('%d %b %Y') if latest_dt else '11 Apr 2026'
+
+    return {
+        'company': {
+            'name': 'Ave Maria Career Guidance Center Ltd.',
+            'address': 'Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom',
+            'company_no': '16952003',
+            'email': 'admissions@avemariacareer.co.uk',
+            'phone': '+44 75 5446 8284',
+            'gstin': '32AABCA9876C1Z8',
+            'sac_code': '999293'
+        },
+        'invoice': {
+            'title': 'TAX INVOICE',
+            'invoice_number': invoice_number,
+            'badges': ['GST INCLUDED', 'PAID IN FULL'],
+            'issue_date': latest_date_str,
+            'payment_method': 'Card / Stripe Online',
+            'tax_rate': 'Inclusive of 18% GST (SAC: 999293)',
+            'status': 'Active & Verified on Portal'
+        },
+        'billed_to': {
+            'name': student.name,
+            'email': student.email,
+            'phone': student.phone or '+44 7867898789',
+            'location': student.location or student.city or student.country or '-'
+        },
+        'line_items': line_items,
+        'totals': {
+            'taxable_base_value': base_amount,
+            'taxable_base_formatted': f"£{base_amount:.2f}",
+            'cgst_9': cgst_9,
+            'cgst_9_formatted': f"£{cgst_9:.2f}",
+            'sgst_9': sgst_9,
+            'sgst_9_formatted': f"£{sgst_9:.2f}",
+            'total_gst_18': gst_amount,
+            'total_gst_formatted': f"£{gst_amount:.2f}",
+            'total_paid': total_amount,
+            'total_paid_formatted': f"£{total_amount:.2f}"
+        },
+        'verified_badge': {
+            'title': 'Verified Payment Transaction (GST Inclusive)',
+            'subtitle': f"Invoice Reference: {invoice_number.replace('#', '')} - Processed securely via Stripe / Card",
+            'status': 'PAID IN FULL'
+        },
+        'footer': {
+            'note_1': 'This is an official computer-generated Tax Invoice issued by Ave Maria Career Guidance Center Ltd. and requires no physical signature.',
+            'note_2': 'Prices include 18% Goods and Services Tax (GST). HSN / SAC Code: 999293 · Company Registration No.: 16952003',
+            'company_line': 'Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom · admissions@avemariacareer.co.uk'
+        }
+    }
 
 class StudentViewSet(viewsets.ModelViewSet):
     """
@@ -249,109 +410,41 @@ class StudentViewSet(viewsets.ModelViewSet):
             'id': str(student.uuid)
         }, status=status.HTTP_200_OK)
 
+
     @extend_schema(
         summary="Retrieve tax invoice JSON data",
-        description="Returns structured Tax Invoice data matching the TAX INVOICE modal/view",
+        description="Returns structured Tax Invoice data matching the TAX INVOICE modal/view with all enrolled courses and purchased resources",
         responses={200: InvoiceDataResponseSerializer}
     )
     @action(detail=True, methods=['get'], url_path='invoice-data', permission_classes=[permissions.AllowAny])
     def invoice_data(self, request, pk=None):
         """
-        Returns structured Tax Invoice data matching the TAX INVOICE modal/view.
+        Returns structured Tax Invoice data matching the TAX INVOICE modal/view
+        containing all courses and study resources for this student.
         """
         student = self.get_object()
-        serializer = StudentSerializer(student, context={'request': request})
-        sdata = {
-            'total_amount': serializer.get_total_amount(student),
-            'base_amount': serializer.get_base_amount(student),
-            'gst_amount': serializer.get_gst_amount(student),
-            'invoice_number': serializer.get_invoice_number(student),
-            'purchase_date_formatted': serializer.get_purchase_date_formatted(student),
-            'item_name': serializer.get_item_name(student),
-            'item_type': serializer.get_item_type(student),
-        }
-
-        total_amount = sdata['total_amount']
-        base_amount = sdata['base_amount']
-        gst_amount = sdata['gst_amount']
-        cgst_9 = round(gst_amount / 2, 2)
-        sgst_9 = round(gst_amount - cgst_9, 2)
-
-        return Response({
-            'company': {
-                'name': 'Avemaria Career Guidance Center Ltd.',
-                'address': '71-75 Shelton Street, Covent Garden, London, WC2H 9JQ, United Kingdom',
-                'email': 'admissions@avemariacareer.co.uk',
-                'phone': '+44 20 3960 4120',
-                'gstin': '32AABCA9876C1Z8',
-                'sac_code': '999293 (Coaching & Vocational Training)'
-            },
-            'invoice': {
-                'title': 'TAX INVOICE',
-                'invoice_number': sdata['invoice_number'],
-                'badges': ['GST INCLUDED', 'PAID IN FULL'],
-                'issue_date': sdata['purchase_date_formatted'] or '08 Sept 2026',
-                'payment_method': 'Stripe / Card',
-                'tax_rate': '18% GST Included (9% CGST + 9% SGST)',
-                'status': 'Paid (Authorised)'
-            },
-            'billed_to': {
-                'name': student.name,
-                'email': student.email,
-                'phone': student.phone or '+44 7911 123456',
-                'location': student.location or student.city or 'London, United Kingdom'
-            },
-            'line_items': [
-                {
-                    'sl_no': 1,
-                    'description': sdata['item_name'],
-                    'subtext': 'Medical laboratory science training curriculum, verified assessment, and study pack',
-                    'type': sdata['item_type'],
-                    'sac_hsn': '999293',
-                    'taxable_base': base_amount,
-                    'taxable_base_formatted': f"£{base_amount:.2f}",
-                    'gst_18': gst_amount,
-                    'gst_18_formatted': f"£{gst_amount:.2f}",
-                    'total_amount': total_amount,
-                    'total_amount_formatted': f"£{total_amount:.2f}"
-                }
-            ],
-            'totals': {
-                'taxable_base_value': base_amount,
-                'taxable_base_formatted': f"£{base_amount:.2f}",
-                'cgst_9': cgst_9,
-                'cgst_9_formatted': f"£{cgst_9:.2f}",
-                'sgst_9': sgst_9,
-                'sgst_9_formatted': f"£{sgst_9:.2f}",
-                'total_gst_18': gst_amount,
-                'total_gst_formatted': f"£{gst_amount:.2f}",
-                'total_paid': total_amount,
-                'total_paid_formatted': f"£{total_amount:.2f}"
-            },
-            'verified_badge': {
-                'title': 'Verified Payment Transaction (GST Inclusive)',
-                'subtitle': f"Invoice Reference: {sdata['invoice_number'].replace('#', '')} - Processed securely via Stripe / Card",
-                'status': 'PAID IN FULL'
-            },
-            'footer': {
-                'note_1': 'This is a computer-generated Tax Invoice and requires no physical signature.',
-                'note_2': 'Prices include 18% Goods and Services Tax (GST). HSN / SAC Code: 999293.',
-                'company_line': 'Avemaria Career Guidance Center Ltd. · Covent Garden, London WC2H 9JQ · admissions@avemariacareer.co.uk'
-            }
-        })
+        data = get_student_invoice_payload(student, request=request)
+        return Response(data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Download student tax invoice PDF",
-        description="Generate and download student tax invoice PDF matching the TAX INVOICE screenshot design",
+        description="Generate and download student tax invoice PDF matching the TAX INVOICE screenshot design with all enrolled courses and purchased resources",
+        parameters=[
+            OpenApiParameter('token', str, OpenApiParameter.QUERY, required=False, description="Optional JWT access token for direct browser downloads"),
+            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False, description="Pass 1 to force attachment download"),
+            OpenApiParameter('format', str, OpenApiParameter.QUERY, required=False, description="Pass json for raw invoice data"),
+        ],
         responses={200: bytes}
     )
     @action(detail=True, methods=['get'], url_path='invoice', permission_classes=[permissions.AllowAny])
     def invoice(self, request, pk=None):
         """
         Generate and download student tax invoice PDF matching the TAX INVOICE screenshot design.
+        Includes all courses and resources for this student.
         Supports:
         - Authorization: Bearer <token> header or ?token=<token> for direct browser download links
         - ?format=json to return structured data directly
+        - ?download=1 to force attachment download
         """
         if request.query_params.get('format') == 'json':
             return self.invoice_data(request, pk=pk)
@@ -371,174 +464,323 @@ class StudentViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
 
         student = self.get_object()
-        serializer = StudentSerializer(student, context={'request': request})
-        sdata = {
-            'total_amount': serializer.get_total_amount(student),
-            'base_amount': serializer.get_base_amount(student),
-            'gst_amount': serializer.get_gst_amount(student),
-            'invoice_number': serializer.get_invoice_number(student),
-            'purchase_date_formatted': serializer.get_purchase_date_formatted(student),
-            'item_name': serializer.get_item_name(student),
-            'item_type': serializer.get_item_type(student),
-        }
+        data = get_student_invoice_payload(student, request=request)
 
-        total_amount = sdata['total_amount']
-        base_amount = sdata['base_amount']
-        gst_amount = sdata['gst_amount']
-        cgst_9 = round(gst_amount / 2, 2)
-        sgst_9 = round(gst_amount - cgst_9, 2)
-
-        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib import colors
 
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=32,
+            rightMargin=32,
+            topMargin=30,
+            bottomMargin=28
+        )
         elements = []
-        styles = getSampleStyleSheet()
 
-        brand_navy = colors.HexColor('#0d1b3e')
-        brand_gold = colors.HexColor('#b38128')
-        brand_green = colors.HexColor('#12b76a')
-        gray_sub = colors.HexColor('#555555')
-        gray_border = colors.HexColor('#e4e7ec')
+        c_navy = colors.HexColor('#0E1B3E')
+        c_slate = colors.HexColor('#334155')
+        c_muted = colors.HexColor('#64748B')
+        c_border = colors.HexColor('#E2E8F0')
+        c_card_bg = colors.HexColor('#F8FAFC')
+        c_gold = colors.HexColor('#B4822B')
+        c_green = colors.HexColor('#059669')
+        c_green_bg = colors.HexColor('#ECFDF5')
+        c_green_border = colors.HexColor('#A7F3D0')
+        c_amber = colors.HexColor('#D97706')
+        c_amber_bg = colors.HexColor('#FFFBEB')
+        c_amber_border = colors.HexColor('#FDE68A')
+        c_blue = colors.HexColor('#2563EB')
+        c_blue_bg = colors.HexColor('#EFF6FF')
+        c_blue_border = colors.HexColor('#BFDBFE')
 
-        co_title_style = ParagraphStyle('CoTitle', fontName='Helvetica-Bold', fontSize=15, leading=18, textColor=brand_navy)
-        co_sub_style = ParagraphStyle('CoSub', fontName='Helvetica', fontSize=8, leading=11, textColor=gray_sub)
-        inv_title_style = ParagraphStyle('InvTitle', fontName='Helvetica-Bold', fontSize=18, leading=22, textColor=brand_gold, alignment=2)
-        inv_no_style = ParagraphStyle('InvNo', fontName='Helvetica-Bold', fontSize=11, leading=14, textColor=brand_navy, alignment=2)
-        bold_lbl = ParagraphStyle('BoldLbl', fontName='Helvetica-Bold', fontSize=8.5, leading=12, textColor=brand_navy)
-        val_txt = ParagraphStyle('ValTxt', fontName='Helvetica', fontSize=8.5, leading=12, textColor=gray_sub)
-        tbl_hdr = ParagraphStyle('TblHdr', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=brand_navy)
-        tbl_cell = ParagraphStyle('TblCell', fontName='Helvetica', fontSize=8, leading=11, textColor=brand_navy)
-        tbl_sub = ParagraphStyle('TblSub', fontName='Helvetica', fontSize=7, leading=9, textColor=gray_sub)
+        f_co_title = ParagraphStyle('CoT', fontName='Helvetica-Bold', fontSize=13, leading=16, textColor=c_navy)
+        f_co_sub = ParagraphStyle('CoS', fontName='Helvetica', fontSize=7.5, leading=10.5, textColor=c_muted)
+        f_inv_title = ParagraphStyle('InvT', fontName='Helvetica-Bold', fontSize=18, leading=22, textColor=c_gold, alignment=2)
+        f_inv_no = ParagraphStyle('InvN', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy, alignment=1)
+        f_inv_date = ParagraphStyle('InvD', fontName='Helvetica', fontSize=7.5, leading=10, textColor=c_muted, alignment=2)
 
-        # 1. Header Grid: Left Company Details, Right TAX INVOICE Header
+        # 1. Header Grid
         left_co = [
-            Paragraph("<b>Avemaria Career Guidance Center Ltd.</b>", co_title_style),
-            Paragraph("71-75 Shelton Street, Covent Garden, London, WC2H 9JQ, United Kingdom", co_sub_style),
-            Paragraph("Email: admissions@avemariacareer.co.uk | Phone: +44 20 3960 4120", co_sub_style),
-            Paragraph("<b>GSTIN:</b> 32AABCA9876C1Z8 | <b>SAC Code:</b> 999293 (Coaching & Vocational Training)", co_sub_style),
+            Paragraph(f"<b>{data['company']['name']}</b>", f_co_title),
+            Spacer(1, 3),
+            Paragraph(
+                f"{data['company']['address']}<br/>"
+                f"Company No.: {data['company']['company_no']}<br/>"
+                f"Email: {data['company']['email']} · Phone: {data['company']['phone']}<br/>"
+                f"<b>GSTIN:</b> {data['company']['gstin']} | <b>SAC Code:</b> {data['company']['sac_code']}",
+                f_co_sub
+            )
         ]
-        right_inv = [
-            Paragraph("TAX INVOICE", inv_title_style),
-            Paragraph(f"<b>{sdata['invoice_number']}</b>", inv_no_style),
-            Paragraph("<font color='#b38128'><b>[ GST INCLUDED ]</b></font> &nbsp; <font color='#12b76a'><b>[ PAID IN FULL ]</b></font>", ParagraphStyle('Badges', alignment=2, fontSize=8)),
-        ]
-        hdr_table = Table([[left_co, right_inv]], colWidths=[340, 200])
-        hdr_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
-        elements.append(hdr_table)
-        elements.append(Spacer(1, 15))
 
-        # 2. Billed To & Payment Details
-        b_left = [
-            Paragraph("<b>BILLED TO (STUDENT / LEARNER)</b>", bold_lbl),
-            Paragraph(f"<b>{student.name}</b>", ParagraphStyle('StuName', fontName='Helvetica-Bold', fontSize=11, leading=14, textColor=brand_navy)),
-            Paragraph(student.email, val_txt),
-            Paragraph(student.phone or "+44 7911 123456", val_txt),
-            Paragraph(student.location or student.city or "London, United Kingdom", val_txt),
-        ]
-        b_right = [
-            Paragraph("<b>PAYMENT & TAX DETAILS</b>", ParagraphStyle('R_Hdr', fontName='Helvetica-Bold', fontSize=8.5, leading=12, textColor=brand_navy, alignment=2)),
-            Paragraph(f"<b>Issue / Purchase Date:</b> {sdata['purchase_date_formatted'] or '08 Sept 2026'}", ParagraphStyle('R_1', alignment=2, fontSize=8, leading=11, textColor=gray_sub)),
-            Paragraph("<b>Payment Method:</b> Stripe / Card", ParagraphStyle('R_2', alignment=2, fontSize=8, leading=11, textColor=gray_sub)),
-            Paragraph("<b>Tax Rate:</b> 18% GST Included (9% CGST + 9% SGST)", ParagraphStyle('R_3', alignment=2, fontSize=8, leading=11, textColor=gray_sub)),
-            Paragraph("<b>Status:</b> Paid (Authorised)", ParagraphStyle('R_4', alignment=2, fontSize=8, leading=11, textColor=colors.HexColor('#12b76a'))),
-        ]
-        info_table = Table([[b_left, b_right]], colWidths=[270, 270])
-        info_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LINEBELOW', (0,0), (-1,-1), 0.5, gray_border),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-        ]))
-        elements.append(info_table)
-        elements.append(Spacer(1, 12))
-
-        # 3. Line Items Table
-        item_table_data = [
-            [Paragraph("<b>#</b>", tbl_hdr),
-             Paragraph("<b>DESCRIPTION</b>", tbl_hdr),
-             Paragraph("<b>TYPE</b>", tbl_hdr),
-             Paragraph("<b>SAC/HSN</b>", tbl_hdr),
-             Paragraph("<b>TAXABLE BASE</b>", tbl_hdr),
-             Paragraph("<b>GST (18%)</b>", tbl_hdr),
-             Paragraph("<b>TOTAL AMOUNT</b>", tbl_hdr)]
-        ]
-        desc_cell = [
-            Paragraph(f"<b>{sdata['item_name']}</b>", tbl_cell),
-            Paragraph("Medical laboratory science training curriculum, verified assessment, and study pack", tbl_sub)
-        ]
-        item_table_data.append([
-            Paragraph("1", tbl_cell),
-            desc_cell,
-            Paragraph(f"<b>{sdata['item_type']}</b>", tbl_cell),
-            Paragraph("999293", tbl_cell),
-            Paragraph(f"£{base_amount:.2f}", tbl_cell),
-            Paragraph(f"£{gst_amount:.2f}", tbl_cell),
-            Paragraph(f"<b>£{total_amount:.2f}</b>", tbl_cell),
-        ])
-
-        line_table = Table(item_table_data, colWidths=[20, 200, 55, 55, 70, 65, 75])
-        line_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f8f9fc')),
-            ('LINEBELOW', (0,0), (-1,0), 1, gray_border),
-            ('LINEBELOW', (0,1), (-1,1), 0.5, gray_border),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ]))
-        elements.append(line_table)
-        elements.append(Spacer(1, 10))
-
-        # 4. Subtotals Summary
-        tot_rows = [
-            [Paragraph("Taxable Base Value:", val_txt), Paragraph(f"£{base_amount:.2f}", tbl_cell)],
-            [Paragraph("CGST (9.0%):", val_txt), Paragraph(f"£{cgst_9:.2f}", tbl_cell)],
-            [Paragraph("SGST (9.0%):", val_txt), Paragraph(f"£{sgst_9:.2f}", tbl_cell)],
-            [Paragraph("Total 18% GST (Included):", val_txt), Paragraph(f"£{gst_amount:.2f}", tbl_cell)],
-            [Paragraph("<b>Total Paid (GST INCLUDED):</b>", bold_lbl), Paragraph(f"<b>£{total_amount:.2f}</b>", ParagraphStyle('TotPaid', fontName='Helvetica-Bold', fontSize=12, leading=14, textColor=brand_navy))]
-        ]
-        subtot_table = Table(tot_rows, colWidths=[380, 160])
-        subtot_table.setStyle(TableStyle([
-            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        inv_badge = Table(
+            [[Paragraph(f"<b>{data['invoice']['invoice_number']}</b>", f_inv_no)]],
+            colWidths=[110]
+        )
+        inv_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F1F5F9')),
+            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
             ('TOPPADDING', (0,0), (-1,-1), 2),
             ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ]))
-        elements.append(subtot_table)
-        elements.append(Spacer(1, 15))
 
-        # 5. Verified Payment Transaction Box
-        verif_data = [[
-            Paragraph("<b>Verified Payment Transaction (GST Inclusive)</b><br/><font size=7.5 color='#555555'>Invoice Reference: " + sdata['invoice_number'].replace('#', '') + " - Processed securely via Stripe / Card</font>", ParagraphStyle('VerifT', leading=11)),
-            Paragraph("<font color='#12b76a'><b>PAID IN FULL</b></font>", ParagraphStyle('VerifB', alignment=2, fontName='Helvetica-Bold', fontSize=9))
-        ]]
-        verif_table = Table(verif_data, colWidths=[400, 140])
-        verif_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f0f9ff')),
-            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#b2ddff')),
-            ('TOPPADDING', (0,0), (-1,-1), 8),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-            ('LEFTPADDING', (0,0), (-1,-1), 10),
-            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+        paid_badge = Table(
+            [[Paragraph("<b>PAID IN FULL</b>", ParagraphStyle('PBT', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_green, alignment=1))]],
+            colWidths=[68]
+        )
+        paid_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_green_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_green_border),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        gst_badge = Table(
+            [[Paragraph("<b>GST INCLUDED</b>", ParagraphStyle('GBT', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_amber, alignment=1))]],
+            colWidths=[70]
+        )
+        gst_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_amber_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_amber_border),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        badge_pair = Table([[paid_badge, gst_badge]], colWidths=[72, 74])
+        badge_pair.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
         ]))
-        elements.append(verif_table)
-        elements.append(Spacer(1, 20))
 
-        # 6. Footer Notes
-        elements.append(Paragraph("This is a computer-generated Tax Invoice and requires no physical signature.", co_sub_style))
-        elements.append(Paragraph("Prices include 18% Goods and Services Tax (GST). HSN / SAC Code: 999293.", co_sub_style))
-        elements.append(Paragraph("Avemaria Career Guidance Center Ltd. · Covent Garden, London WC2H 9JQ · admissions@avemariacareer.co.uk", co_sub_style))
+        right_box = [
+            Paragraph("<b>TAX INVOICE</b>", f_inv_title),
+            Spacer(1, 2),
+            Table([[Spacer(1,1), inv_badge]], colWidths=[96, 114], style=[
+                ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]),
+            Spacer(1, 3),
+            Paragraph(f"Invoice Date: {data['invoice']['issue_date']}", f_inv_date),
+            Spacer(1, 3),
+            Table([[Spacer(1,1), badge_pair]], colWidths=[64, 146], style=[
+                ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]),
+        ]
 
+        hdr_table = Table([[left_co, right_box]], colWidths=[321, 210])
+        hdr_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(hdr_table)
+        elements.append(Spacer(1, 14))
+
+        # Thin divider
+        div_tbl = Table([['']], colWidths=[531], rowHeights=[1])
+        div_tbl.setStyle(TableStyle([
+            ('LINEABOVE', (0,0), (-1,-1), 0.5, c_border),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(div_tbl)
+        elements.append(Spacer(1, 14))
+
+        # 2. Billed To & Order Details Card
+        f_card_hdr = ParagraphStyle('CH', fontName='Helvetica-Bold', fontSize=7.5, leading=10, textColor=c_muted)
+        f_st_name = ParagraphStyle('SN', fontName='Helvetica-Bold', fontSize=10.5, leading=13, textColor=c_navy)
+        f_st_sub = ParagraphStyle('SS', fontName='Helvetica', fontSize=8, leading=11, textColor=c_slate)
+        f_ord_txt = ParagraphStyle('OT', fontName='Helvetica', fontSize=8, leading=12, textColor=c_slate)
+
+        b_left = [
+            Paragraph("<b>BILLED TO (STUDENT / LEARNER)</b>", f_card_hdr),
+            Spacer(1, 4),
+            Paragraph(f"<b>{data['billed_to']['name']}</b>", f_st_name),
+            Paragraph(data['billed_to']['email'], f_st_sub),
+            Paragraph(f"Phone: {data['billed_to']['phone']}", f_st_sub),
+            Paragraph(data['billed_to']['location'], f_st_sub),
+        ]
+
+        b_right = [
+            Paragraph("<b>ORDER &amp; PAYMENT DETAILS</b>", f_card_hdr),
+            Spacer(1, 4),
+            Paragraph(f"<b>Payment Mode:</b> {data['invoice']['payment_method']}", f_ord_txt),
+            Paragraph(f"<b>Tax Treatment:</b> {data['invoice']['tax_rate']}", f_ord_txt),
+            Paragraph(f"<b>Enrolment Status:</b> {data['invoice']['status']}", f_ord_txt),
+            Paragraph(f"<b>Invoice Ref:</b> {data['invoice']['invoice_number']}", f_ord_txt),
+        ]
+
+        info_card = Table([[b_left, b_right]], colWidths=[265, 266])
+        info_card.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_card_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 14),
+            ('RIGHTPADDING', (0,0), (-1,-1), 14),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ]))
+        elements.append(info_card)
+        elements.append(Spacer(1, 16))
+
+        # 3. Line Items Table (All enrolled courses & purchased resources)
+        f_tbl_hdr = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted)
+        f_tbl_hdr_r = ParagraphStyle('THR', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted, alignment=2)
+        f_tbl_hdr_c = ParagraphStyle('THC', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted, alignment=1)
+
+        f_cell_r = ParagraphStyle('CR', fontName='Helvetica', fontSize=8, leading=10, textColor=c_navy, alignment=2)
+        f_cell_c = ParagraphStyle('CC', fontName='Helvetica', fontSize=8, leading=10, textColor=c_navy, alignment=1)
+        f_cell_tot = ParagraphStyle('CTOT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy, alignment=2)
+
+        items_table_data = [
+            [
+                Paragraph("<b>DESCRIPTION</b>", f_tbl_hdr),
+                Paragraph("<b>TYPE</b>", f_tbl_hdr_c),
+                Paragraph("<b>QTY</b>", f_tbl_hdr_c),
+                Paragraph("<b>TAXABLE BASE</b>", f_tbl_hdr_r),
+                Paragraph("<b>GST (18%)</b>", f_tbl_hdr_r),
+                Paragraph("<b>TOTAL AMOUNT</b>", f_tbl_hdr_r)
+            ]
+        ]
+
+        for item in data['line_items']:
+            type_pill = Table(
+                [[Paragraph(f"<b>{item['type']}</b>", ParagraphStyle('TP', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_blue, alignment=1))]],
+                colWidths=[46]
+            )
+            type_pill.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), c_blue_bg),
+                ('BOX', (0,0), (-1,-1), 0.5, c_blue_border),
+                ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ]))
+
+            desc_cell = [
+                Paragraph(f"<b>{item['description']}</b>", ParagraphStyle('IT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy)),
+                Spacer(1, 2),
+                Paragraph(item['subtext'], ParagraphStyle('IS', fontName='Helvetica', fontSize=7, leading=9, textColor=c_muted)),
+            ]
+
+            items_table_data.append([
+                desc_cell,
+                type_pill,
+                Paragraph("1", f_cell_c),
+                Paragraph(f"£{item['taxable_base']:.2f}", f_cell_r),
+                Paragraph(f"£{item['gst_18']:.2f}", f_cell_r),
+                Paragraph(f"<b>£{item['total_amount']:.2f}</b>", f_cell_tot)
+            ])
+
+        items_table = Table(items_table_data, colWidths=[220, 56, 32, 72, 72, 79])
+        items_table_styles = [
+            ('LINEBELOW', (0,0), (-1,0), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('VALIGN', (0,1), (0,-1), 'TOP'),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]
+        for r_idx in range(1, len(items_table_data)):
+            items_table_styles.append(('LINEBELOW', (0, r_idx), (-1, r_idx), 0.5, c_border))
+
+        items_table.setStyle(TableStyle(items_table_styles))
+        elements.append(items_table)
+        elements.append(Spacer(1, 16))
+
+        # 4. Subtotals Summary Card (Right Aligned)
+        f_sub_lbl = ParagraphStyle('SL', fontName='Helvetica', fontSize=8, leading=11, textColor=c_muted)
+        f_sub_val = ParagraphStyle('SV', fontName='Helvetica', fontSize=8, leading=11, textColor=c_navy, alignment=2)
+        f_gst_lbl = ParagraphStyle('GL', fontName='Helvetica-Bold', fontSize=8, leading=11, textColor=c_gold)
+        f_gst_val = ParagraphStyle('GV', fontName='Helvetica-Bold', fontSize=8, leading=11, textColor=c_gold, alignment=2)
+        f_tot_lbl = ParagraphStyle('TL', fontName='Helvetica-Bold', fontSize=10, leading=13, textColor=c_navy)
+        f_tot_val = ParagraphStyle('TV', fontName='Helvetica-Bold', fontSize=11, leading=14, textColor=c_navy, alignment=2)
+
+        tot_card_data = [
+            [Paragraph("Taxable Base Value", f_sub_lbl), Paragraph(f"£{data['totals']['taxable_base_value']:.2f}", f_sub_val)],
+            [Paragraph("CGST (9.0%)", f_sub_lbl), Paragraph(f"£{data['totals']['cgst_9']:.2f}", f_sub_val)],
+            [Paragraph("SGST (9.0%)", f_sub_lbl), Paragraph(f"£{data['totals']['sgst_9']:.2f}", f_sub_val)],
+            [Paragraph("Total 18% GST (Included)", f_gst_lbl), Paragraph(f"£{data['totals']['total_gst_18']:.2f}", f_gst_val)],
+            [Paragraph("<b>Total Amount Paid</b>", f_tot_lbl), Paragraph(f"<b>£{data['totals']['total_paid']:.2f}</b>", f_tot_val)],
+        ]
+
+        subtot_card = Table(tot_card_data, colWidths=[130, 95])
+        subtot_card.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_card_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_border),
+            ('LINEBELOW', (0,3), (-1,3), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 12),
+            ('RIGHTPADDING', (0,0), (-1,-1), 12),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,4), (-1,4), 8),
+            ('BOTTOMPADDING', (0,4), (-1,4), 8),
+        ]))
+
+        totals_row = Table([[Spacer(1,1), subtot_card]], colWidths=[296, 235])
+        totals_row.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(totals_row)
+        elements.append(Spacer(1, 30))
+
+        # 5. Footer Notes
+        f_ftr_1 = ParagraphStyle('FT1', fontName='Helvetica', fontSize=7.5, leading=10.5, textColor=c_muted, alignment=1)
+        f_ftr_2 = ParagraphStyle('FT2', fontName='Helvetica', fontSize=7, leading=10, textColor=colors.HexColor('#94A3B8'), alignment=1)
+
+        elements.append(Paragraph(
+            "This is an official computer-generated Tax Invoice issued by <b>Ave Maria Career Guidance Center Ltd.</b> and requires no physical signature.",
+            f_ftr_1
+        ))
+        elements.append(Spacer(1, 3))
+        elements.append(Paragraph(
+            "Prices include 18% Goods and Services Tax (GST). HSN / SAC Code: 999293 · Company Registration No.: 16952003",
+            f_ftr_2
+        ))
+        elements.append(Spacer(1, 2))
+        elements.append(Paragraph(
+            "Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom · admissions@avemariacareer.co.uk",
+            f_ftr_2
+        ))
+
+        # Build document
         doc.build(elements)
         pdf_bytes = buffer.getvalue()
         buffer.close()
 
+        clean_inv_no = data['invoice']['invoice_number'].replace('#', '').strip()
+        filename = f"Tax_Invoice_{clean_inv_no}.pdf"
+
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
-        filename = f"Tax_Invoice_{sdata['invoice_number'].replace('#', '')}.pdf"
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        disposition = 'attachment' if request.query_params.get('download') == '1' else 'inline'
+        response['Content-Disposition'] = f'{disposition}; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response
 
     def perform_destroy(self, instance):

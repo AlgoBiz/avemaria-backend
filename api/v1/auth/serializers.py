@@ -388,6 +388,11 @@ class StudentCourseEnrollResponseSerializer(serializers.Serializer):
 
 class StudentCoursesListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField()
+    total_pages = serializers.IntegerField(required=False, default=1)
+    current_page = serializers.IntegerField(required=False, default=1)
+    page_size = serializers.IntegerField(required=False, default=15)
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
     results = serializers.ListField(child=serializers.DictField())
 
 
@@ -415,11 +420,21 @@ class StudentResourceAccessResponseSerializer(serializers.Serializer):
 
 class StudentPurchasedResourcesListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField()
+    total_pages = serializers.IntegerField(required=False, default=1)
+    current_page = serializers.IntegerField(required=False, default=1)
+    page_size = serializers.IntegerField(required=False, default=15)
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
     results = serializers.ListField(child=serializers.DictField())
 
 
 class StudentPurchaseHistoryListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField()
+    total_pages = serializers.IntegerField(required=False, default=1)
+    current_page = serializers.IntegerField(required=False, default=1)
+    page_size = serializers.IntegerField(required=False, default=15)
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
     results = serializers.ListField(child=serializers.DictField())
 
 
@@ -441,6 +456,12 @@ class StudentPaymentDetailsResponseSerializer(serializers.Serializer):
     total_spent = serializers.CharField()
     completed_payments = serializers.IntegerField()
     pending_payments = serializers.IntegerField()
+    count = serializers.IntegerField(required=False, default=0)
+    total_pages = serializers.IntegerField(required=False, default=1)
+    current_page = serializers.IntegerField(required=False, default=1)
+    page_size = serializers.IntegerField(required=False, default=15)
+    next = serializers.CharField(required=False, allow_null=True)
+    previous = serializers.CharField(required=False, allow_null=True)
     results = serializers.ListField(child=serializers.DictField())
 
 
