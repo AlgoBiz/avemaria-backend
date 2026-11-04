@@ -1,8 +1,10 @@
-﻿import os
+import os
 import json
 import logging
 import uuid
+import io
 import stripe
+from django.http import HttpResponse
 from decimal import Decimal
 from django.conf import settings
 from django.utils import timezone
@@ -680,8 +682,102 @@ class StudentPaymentTransactionsView(APIView):
             transactions = PaymentTransaction.objects.all().order_by('-created_at')
         else:
             transactions = PaymentTransaction.objects.filter(student=student).order_by('-created_at')
-        serializer = PaymentTransactionSerializer(transactions, many=True)
+        serializer = PaymentTransactionSerializer(transactions, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+
+def resolve_payment_transaction(lookup_id, user):
+    """
+    Resolves a PaymentTransaction by UUID, integer ID, Stripe session ID,
+    receipt number, or ResourcePurchase/CourseEnrollment UUID.
+    Returns (transaction, None) on success or (None, error_response) on failure.
+    """
+    student = getattr(user, 'student_profile', None)
+    if not student and getattr(user, 'email', None):
+        student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
+
+    is_admin = getattr(user, 'is_staff', False) or getattr(user, 'role', None) == 'admin'
+    if not student and not is_admin:
+        return None, Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    lookup = str(lookup_id).strip()
+    parsed_uuid = None
+    try:
+        parsed_uuid = uuid.UUID(lookup)
+    except (ValueError, TypeError, AttributeError):
+        pass
+
+    qs = PaymentTransaction.objects.all() if is_admin else PaymentTransaction.objects.filter(student=student)
+    tx = None
+
+    if parsed_uuid:
+        tx = qs.filter(uuid=parsed_uuid).first()
+
+    if not tx and lookup.isdigit():
+        tx = qs.filter(id=int(lookup)).first()
+
+    if not tx:
+        tx = qs.filter(stripe_session_id=lookup).first()
+
+    if not tx:
+        tx = qs.filter(receipt_number__iexact=lookup).first()
+
+    if not tx and parsed_uuid:
+        pur_qs = ResourcePurchase.objects.all() if is_admin else ResourcePurchase.objects.filter(student=student)
+        purchase = pur_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
+        if purchase:
+            if purchase.order_id:
+                tx = qs.filter(stripe_session_id=purchase.order_id).first()
+            if not tx and purchase.receipt_number:
+                tx = qs.filter(receipt_number=purchase.receipt_number).first()
+            if not tx:
+                tx, _ = PaymentTransaction.objects.get_or_create(
+                    student=purchase.student,
+                    item_type='resource',
+                    item_id=purchase.resource_id,
+                    defaults={
+                        'item_title': purchase.resource.title if purchase.resource else 'Study Resource',
+                        'amount': purchase.amount_paid or (purchase.resource.price if purchase.resource else Decimal('0.00')),
+                        'currency': get_stripe_currency(purchase.currency),
+                        'status': 'succeeded' if purchase.payment_status == 'paid' else purchase.payment_status,
+                        'stripe_session_id': purchase.order_id or '',
+                        'receipt_number': purchase.receipt_number or '',
+                        'completed_at': purchase.purchased_at or purchase.created_at,
+                    }
+                )
+
+        if not tx:
+            enr_qs = CourseEnrollment.objects.all() if is_admin else CourseEnrollment.objects.filter(student=student)
+            enrollment = enr_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
+            if enrollment:
+                if enrollment.order_id:
+                    tx = qs.filter(stripe_session_id=enrollment.order_id).first()
+                if not tx and enrollment.receipt_number:
+                    tx = qs.filter(receipt_number=enrollment.receipt_number).first()
+                if not tx:
+                    tx, _ = PaymentTransaction.objects.get_or_create(
+                        student=enrollment.student,
+                        item_type='course',
+                        item_id=enrollment.course_id,
+                        defaults={
+                            'item_title': enrollment.course.title if enrollment.course else 'Course',
+                            'amount': enrollment.amount_paid or (enrollment.course.fee if enrollment.course else Decimal('0.00')),
+                            'currency': get_stripe_currency(enrollment.currency),
+                            'status': 'succeeded' if enrollment.payment_status == 'paid' else enrollment.payment_status,
+                            'stripe_session_id': enrollment.order_id or '',
+                            'receipt_number': enrollment.receipt_number or '',
+                            'completed_at': enrollment.enrolled_at or enrollment.created_at,
+                        }
+                    )
+
+    if not tx:
+        return None, Response(
+            {"detail": f"Payment transaction '{lookup_id}' not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    return tx, None
 
 
 class StudentPaymentTransactionDetailView(APIView):
@@ -706,91 +802,420 @@ class StudentPaymentTransactionDetailView(APIView):
         }
     )
     def get(self, request, id):
-        student = getattr(request.user, 'student_profile', None)
-        if not student and getattr(request.user, 'email', None):
-            student = Student.objects.filter(email__iexact=request.user.email, is_deleted=False).first()
-
-        is_admin = getattr(request.user, 'is_staff', False) or getattr(request.user, 'role', None) == 'admin'
-        if not student and not is_admin:
-            return Response({"detail": "Student profile not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        lookup = str(id).strip()
-        parsed_uuid = None
-        try:
-            parsed_uuid = uuid.UUID(lookup)
-        except (ValueError, TypeError, AttributeError):
-            pass
-
-        # 1. Look up PaymentTransaction directly
-        qs = PaymentTransaction.objects.all() if is_admin else PaymentTransaction.objects.filter(student=student)
-        tx = None
-
-        if parsed_uuid:
-            tx = qs.filter(uuid=parsed_uuid).first()
-
-        if not tx and lookup.isdigit():
-            tx = qs.filter(id=int(lookup)).first()
-
-        if not tx:
-            tx = qs.filter(stripe_session_id=lookup).first()
-
-        if not tx:
-            tx = qs.filter(receipt_number__iexact=lookup).first()
-
-        # 2. Check ResourcePurchase or CourseEnrollment if queried with their UUID
-        if not tx and parsed_uuid:
-            pur_qs = ResourcePurchase.objects.all() if is_admin else ResourcePurchase.objects.filter(student=student)
-            purchase = pur_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
-            if purchase:
-                if purchase.order_id:
-                    tx = qs.filter(stripe_session_id=purchase.order_id).first()
-                if not tx and purchase.receipt_number:
-                    tx = qs.filter(receipt_number=purchase.receipt_number).first()
-                if not tx:
-                    tx, _ = PaymentTransaction.objects.get_or_create(
-                        student=purchase.student,
-                        item_type='resource',
-                        item_id=purchase.resource_id,
-                        defaults={
-                            'item_title': purchase.resource.title if purchase.resource else 'Study Resource',
-                            'amount': purchase.amount_paid or (purchase.resource.price if purchase.resource else Decimal('0.00')),
-                            'currency': get_stripe_currency(purchase.currency),
-                            'status': 'succeeded' if purchase.payment_status == 'paid' else purchase.payment_status,
-                            'stripe_session_id': purchase.order_id or '',
-                            'receipt_number': purchase.receipt_number or '',
-                            'completed_at': purchase.purchased_at or purchase.created_at,
-                        }
-                    )
-
-            if not tx:
-                enr_qs = CourseEnrollment.objects.all() if is_admin else CourseEnrollment.objects.filter(student=student)
-                enrollment = enr_qs.filter(uuid=parsed_uuid, is_deleted=False).first()
-                if enrollment:
-                    if enrollment.order_id:
-                        tx = qs.filter(stripe_session_id=enrollment.order_id).first()
-                    if not tx and enrollment.receipt_number:
-                        tx = qs.filter(receipt_number=enrollment.receipt_number).first()
-                    if not tx:
-                        tx, _ = PaymentTransaction.objects.get_or_create(
-                            student=enrollment.student,
-                            item_type='course',
-                            item_id=enrollment.course_id,
-                            defaults={
-                                'item_title': enrollment.course.title if enrollment.course else 'Course',
-                                'amount': enrollment.amount_paid or (enrollment.course.fee if enrollment.course else Decimal('0.00')),
-                                'currency': get_stripe_currency(enrollment.currency),
-                                'status': 'succeeded' if enrollment.payment_status == 'paid' else enrollment.payment_status,
-                                'stripe_session_id': enrollment.order_id or '',
-                                'receipt_number': enrollment.receipt_number or '',
-                                'completed_at': enrollment.enrolled_at or enrollment.created_at,
-                            }
-                        )
-
-        if not tx:
-            return Response(
-                {"detail": f"Payment transaction '{id}' not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        serializer = PaymentTransactionDetailSerializer(tx)
+        tx, err = resolve_payment_transaction(id, request.user)
+        if err:
+            return err
+        serializer = PaymentTransactionDetailSerializer(tx, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DownloadPaymentInvoicePdfView(APIView):
+    """
+    Generates and downloads the pixel-accurate single-page A4 Tax Invoice PDF
+    matching the exact screenshot design.
+    Supports:
+    - Direct browser download via ?token=<jwt_access_token>
+    - Attachment download via ?download=1
+    - Raw JSON invoice payload via ?format=json
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['USER SIDE - Stripe Payments & Checkout'],
+        summary="Download Single Payment Tax Invoice PDF",
+        description="Generates a pixel-accurate single-page A4 Tax Invoice PDF with GST breakdown matching the portal design.",
+        parameters=[
+            OpenApiParameter('id', str, OpenApiParameter.PATH, description="Transaction ID, UUID, Session ID, or Receipt Number"),
+            OpenApiParameter('token', str, OpenApiParameter.QUERY, required=False, description="Optional JWT access token for direct browser downloads"),
+            OpenApiParameter('download', str, OpenApiParameter.QUERY, required=False, description="Pass 1 to force attachment download"),
+            OpenApiParameter('format', str, OpenApiParameter.QUERY, required=False, description="Pass json for raw invoice data"),
+        ],
+        responses={200: bytes, 404: OpenApiResponse(description="Transaction not found")}
+    )
+    def get(self, request, id):
+        # 1. Authenticate user (via header or token query param)
+        user = request.user
+        token = request.query_params.get('token')
+        if not (user and user.is_authenticated):
+            if token:
+                try:
+                    from rest_framework_simplejwt.tokens import AccessToken
+                    from apps.accounts.models import User
+                    validated_token = AccessToken(token)
+                    user = User.objects.get(id=validated_token['user_id'], is_active=True)
+                except Exception:
+                    return Response({'detail': 'Invalid or expired download token.'}, status=status.HTTP_401_UNAUTHORIZED)
+            else:
+                return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Resolve transaction
+        tx, err = resolve_payment_transaction(id, user)
+        if err:
+            return err
+
+        # 3. Dynamic data resolution
+        student = tx.student
+        student_name = student.name or (student.user.display_name if student.user else '') or student.email
+        student_email = student.email or ''
+        student_phone = student.phone or '+44 7867898789'
+        student_location = student.location or student.city or student.country or '-'
+
+        tx_serializer = PaymentTransactionSerializer()
+        invoice_number = tx_serializer.get_invoice_number(tx)
+
+        dt = tx.completed_at or tx.created_at
+        invoice_date_str = dt.strftime('%d %b %Y') if dt else timezone.now().strftime('%d %b %Y')
+
+        total_amount = float(tx.amount)
+        base_amount = round(total_amount / 1.18, 2)
+        gst_amount = round(total_amount - base_amount, 2)
+        cgst_9 = round(gst_amount / 2, 2)
+        sgst_9 = round(gst_amount - cgst_9, 2)
+
+        curr_code = str(tx.currency or 'gbp').lower()
+        curr_sym = '£' if curr_code in ('gbp', '£') else ('$' if curr_code in ('usd', '$') else ('€' if curr_code in ('eur', '€') else f"{tx.currency.upper()} "))
+
+        item_type_label = 'Course' if tx.item_type == 'course' else 'Resource'
+        item_title = tx.item_title or ('Course Enrollment' if tx.item_type == 'course' else 'Study Resource')
+        if tx.item_type == 'course':
+            item_subtitle = "Comprehensive curriculum, lecture coaching, and verified exam pack (SAC 999293)"
+        else:
+            item_subtitle = "Study resource material, revision guide, and verified exam practice pack (SAC 999293)"
+
+        # Return JSON if requested
+        if request.query_params.get('format') == 'json':
+            return Response({
+                "invoice_number": invoice_number,
+                "invoice_date": invoice_date_str,
+                "student": {
+                    "name": student_name,
+                    "email": student_email,
+                    "phone": student_phone,
+                    "location": student_location,
+                },
+                "item": {
+                    "title": item_title,
+                    "type": item_type_label,
+                    "subtitle": item_subtitle,
+                    "total_amount": total_amount,
+                    "base_amount": base_amount,
+                    "gst_amount": gst_amount,
+                    "cgst_9": cgst_9,
+                    "sgst_9": sgst_9,
+                    "currency": curr_sym,
+                }
+            }, status=status.HTTP_200_OK)
+
+        # 4. Generate Pixel-Accurate Single A4 PDF
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib import colors
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=32,
+            rightMargin=32,
+            topMargin=30,
+            bottomMargin=28
+        )
+        elements = []
+
+        # Color definitions matching screenshots
+        c_navy = colors.HexColor('#0E1B3E')
+        c_slate = colors.HexColor('#334155')
+        c_muted = colors.HexColor('#64748B')
+        c_border = colors.HexColor('#E2E8F0')
+        c_card_bg = colors.HexColor('#F8FAFC')
+        c_gold = colors.HexColor('#B4822B')
+        c_green = colors.HexColor('#059669')
+        c_green_bg = colors.HexColor('#ECFDF5')
+        c_green_border = colors.HexColor('#A7F3D0')
+        c_amber = colors.HexColor('#D97706')
+        c_amber_bg = colors.HexColor('#FFFBEB')
+        c_amber_border = colors.HexColor('#FDE68A')
+        c_blue = colors.HexColor('#2563EB')
+        c_blue_bg = colors.HexColor('#EFF6FF')
+        c_blue_border = colors.HexColor('#BFDBFE')
+
+        f_co_title = ParagraphStyle('CoT', fontName='Helvetica-Bold', fontSize=13, leading=16, textColor=c_navy)
+        f_co_sub = ParagraphStyle('CoS', fontName='Helvetica', fontSize=7.5, leading=10.5, textColor=c_muted)
+        f_inv_title = ParagraphStyle('InvT', fontName='Helvetica-Bold', fontSize=18, leading=22, textColor=c_gold, alignment=2)
+        f_inv_no = ParagraphStyle('InvN', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy, alignment=1)
+        f_inv_date = ParagraphStyle('InvD', fontName='Helvetica', fontSize=7.5, leading=10, textColor=c_muted, alignment=2)
+
+        # --- SECTION 1: HEADER ---
+        left_co = [
+            Paragraph("<b>Ave Maria Career Guidance Center Ltd.</b>", f_co_title),
+            Spacer(1, 3),
+            Paragraph(
+                "Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom<br/>"
+                "Company No.: 16952003<br/>"
+                "Email: admissions@avemariacareer.co.uk · Phone: +44 75 5446 8284<br/>"
+                "<b>GSTIN:</b> 32AABCA9876C1Z8 | <b>SAC Code:</b> 999293",
+                f_co_sub
+            )
+        ]
+
+        inv_badge = Table(
+            [[Paragraph(f"<b>{invoice_number}</b>", f_inv_no)]],
+            colWidths=[110]
+        )
+        inv_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F1F5F9')),
+            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        paid_badge = Table(
+            [[Paragraph("<b>PAID IN FULL</b>", ParagraphStyle('PBT', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_green, alignment=1))]],
+            colWidths=[68]
+        )
+        paid_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_green_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_green_border),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        gst_badge = Table(
+            [[Paragraph("<b>GST INCLUDED</b>", ParagraphStyle('GBT', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_amber, alignment=1))]],
+            colWidths=[70]
+        )
+        gst_badge.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_amber_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_amber_border),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        badge_pair = Table([[paid_badge, gst_badge]], colWidths=[72, 74])
+        badge_pair.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+
+        right_box = [
+            Paragraph("<b>TAX INVOICE</b>", f_inv_title),
+            Spacer(1, 2),
+            Table([[Spacer(1,1), inv_badge]], colWidths=[96, 114], style=[
+                ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]),
+            Spacer(1, 3),
+            Paragraph(f"Invoice Date: {invoice_date_str}", f_inv_date),
+            Spacer(1, 3),
+            Table([[Spacer(1,1), badge_pair]], colWidths=[64, 146], style=[
+                ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]),
+        ]
+
+        hdr_table = Table([[left_co, right_box]], colWidths=[321, 210])
+        hdr_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(hdr_table)
+        elements.append(Spacer(1, 14))
+
+        # Thin divider
+        div_tbl = Table([['']], colWidths=[531], rowHeights=[1])
+        div_tbl.setStyle(TableStyle([
+            ('LINEABOVE', (0,0), (-1,-1), 0.5, c_border),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(div_tbl)
+        elements.append(Spacer(1, 14))
+
+        # --- SECTION 2: BILLED TO & ORDER DETAILS ---
+        f_card_hdr = ParagraphStyle('CH', fontName='Helvetica-Bold', fontSize=7.5, leading=10, textColor=c_muted)
+        f_st_name = ParagraphStyle('SN', fontName='Helvetica-Bold', fontSize=10.5, leading=13, textColor=c_navy)
+        f_st_sub = ParagraphStyle('SS', fontName='Helvetica', fontSize=8, leading=11, textColor=c_slate)
+        f_ord_txt = ParagraphStyle('OT', fontName='Helvetica', fontSize=8, leading=12, textColor=c_slate)
+
+        b_left = [
+            Paragraph("<b>BILLED TO (STUDENT / LEARNER)</b>", f_card_hdr),
+            Spacer(1, 4),
+            Paragraph(f"<b>{student_name}</b>", f_st_name),
+            Paragraph(student_email, f_st_sub),
+            Paragraph(f"Phone: {student_phone}", f_st_sub),
+            Paragraph(student_location, f_st_sub),
+        ]
+
+        b_right = [
+            Paragraph("<b>ORDER &amp; PAYMENT DETAILS</b>", f_card_hdr),
+            Spacer(1, 4),
+            Paragraph("<b>Payment Mode:</b> Card / Stripe Online", f_ord_txt),
+            Paragraph("<b>Tax Treatment:</b> Inclusive of 18% GST (SAC: 999293)", f_ord_txt),
+            Paragraph("<b>Enrolment Status:</b> Active &amp; Verified on Portal", f_ord_txt),
+            Paragraph(f"<b>Invoice Ref:</b> {invoice_number}", f_ord_txt),
+        ]
+
+        info_card = Table([[b_left, b_right]], colWidths=[265, 266])
+        info_card.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_card_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 14),
+            ('RIGHTPADDING', (0,0), (-1,-1), 14),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ]))
+        elements.append(info_card)
+        elements.append(Spacer(1, 16))
+
+        # --- SECTION 3: LINE ITEMS TABLE ---
+        f_tbl_hdr = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted)
+        f_tbl_hdr_r = ParagraphStyle('THR', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted, alignment=2)
+        f_tbl_hdr_c = ParagraphStyle('THC', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=c_muted, alignment=1)
+
+        f_cell_r = ParagraphStyle('CR', fontName='Helvetica', fontSize=8, leading=10, textColor=c_navy, alignment=2)
+        f_cell_c = ParagraphStyle('CC', fontName='Helvetica', fontSize=8, leading=10, textColor=c_navy, alignment=1)
+        f_cell_tot = ParagraphStyle('CTOT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy, alignment=2)
+
+        type_pill = Table(
+            [[Paragraph(f"<b>{item_type_label}</b>", ParagraphStyle('TP', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_blue, alignment=1))]],
+            colWidths=[46]
+        )
+        type_pill.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_blue_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_blue_border),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+
+        desc_cell = [
+            Paragraph(f"<b>{item_title}</b>", ParagraphStyle('IT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy)),
+            Spacer(1, 2),
+            Paragraph(item_subtitle, ParagraphStyle('IS', fontName='Helvetica', fontSize=7, leading=9, textColor=c_muted)),
+        ]
+
+        items_table_data = [
+            [
+                Paragraph("<b>DESCRIPTION</b>", f_tbl_hdr),
+                Paragraph("<b>TYPE</b>", f_tbl_hdr_c),
+                Paragraph("<b>QTY</b>", f_tbl_hdr_c),
+                Paragraph("<b>TAXABLE BASE</b>", f_tbl_hdr_r),
+                Paragraph("<b>GST (18%)</b>", f_tbl_hdr_r),
+                Paragraph("<b>TOTAL AMOUNT</b>", f_tbl_hdr_r)
+            ],
+            [
+                desc_cell,
+                type_pill,
+                Paragraph("1", f_cell_c),
+                Paragraph(f"{curr_sym}{base_amount:.2f}", f_cell_r),
+                Paragraph(f"{curr_sym}{gst_amount:.2f}", f_cell_r),
+                Paragraph(f"<b>{curr_sym}{total_amount:.2f}</b>", f_cell_tot)
+            ]
+        ]
+
+        items_table = Table(items_table_data, colWidths=[220, 56, 32, 72, 72, 79])
+        items_table.setStyle(TableStyle([
+            ('LINEBELOW', (0,0), (-1,0), 0.5, c_border),
+            ('LINEBELOW', (0,1), (-1,1), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('VALIGN', (0,1), (0,1), 'TOP'),
+            ('TOPPADDING', (0,0), (-1,-1), 7),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(items_table)
+        elements.append(Spacer(1, 16))
+
+        # --- SECTION 4: SUBTOTALS & TOTALS CARD ---
+        f_sub_lbl = ParagraphStyle('SL', fontName='Helvetica', fontSize=8, leading=11, textColor=c_muted)
+        f_sub_val = ParagraphStyle('SV', fontName='Helvetica', fontSize=8, leading=11, textColor=c_navy, alignment=2)
+        f_gst_lbl = ParagraphStyle('GL', fontName='Helvetica-Bold', fontSize=8, leading=11, textColor=c_gold)
+        f_gst_val = ParagraphStyle('GV', fontName='Helvetica-Bold', fontSize=8, leading=11, textColor=c_gold, alignment=2)
+        f_tot_lbl = ParagraphStyle('TL', fontName='Helvetica-Bold', fontSize=10, leading=13, textColor=c_navy)
+        f_tot_val = ParagraphStyle('TV', fontName='Helvetica-Bold', fontSize=11, leading=14, textColor=c_navy, alignment=2)
+
+        tot_card_data = [
+            [Paragraph("Taxable Base Value", f_sub_lbl), Paragraph(f"{curr_sym}{base_amount:.2f}", f_sub_val)],
+            [Paragraph("CGST (9.0%)", f_sub_lbl), Paragraph(f"{curr_sym}{cgst_9:.2f}", f_sub_val)],
+            [Paragraph("SGST (9.0%)", f_sub_lbl), Paragraph(f"{curr_sym}{sgst_9:.2f}", f_sub_val)],
+            [Paragraph("Total 18% GST (Included)", f_gst_lbl), Paragraph(f"{curr_sym}{gst_amount:.2f}", f_gst_val)],
+            [Paragraph("<b>Total Amount Paid</b>", f_tot_lbl), Paragraph(f"<b>{curr_sym}{total_amount:.2f}</b>", f_tot_val)],
+        ]
+
+        subtot_card = Table(tot_card_data, colWidths=[130, 95])
+        subtot_card.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), c_card_bg),
+            ('BOX', (0,0), (-1,-1), 0.5, c_border),
+            ('LINEBELOW', (0,3), (-1,3), 0.5, c_border),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 12),
+            ('RIGHTPADDING', (0,0), (-1,-1), 12),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,4), (-1,4), 8),
+            ('BOTTOMPADDING', (0,4), (-1,4), 8),
+        ]))
+
+        totals_row = Table([[Spacer(1,1), subtot_card]], colWidths=[296, 235])
+        totals_row.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        elements.append(totals_row)
+        elements.append(Spacer(1, 35))
+
+        # --- SECTION 5: FOOTER NOTES ---
+        f_ftr_1 = ParagraphStyle('FT1', fontName='Helvetica', fontSize=7.5, leading=10.5, textColor=c_muted, alignment=1)
+        f_ftr_2 = ParagraphStyle('FT2', fontName='Helvetica', fontSize=7, leading=10, textColor=colors.HexColor('#94A3B8'), alignment=1)
+
+        elements.append(Paragraph(
+            "This is an official computer-generated Tax Invoice issued by <b>Ave Maria Career Guidance Center Ltd.</b> and requires no physical signature.",
+            f_ftr_1
+        ))
+        elements.append(Spacer(1, 3))
+        elements.append(Paragraph(
+            "Prices include 18% Goods and Services Tax (GST). HSN / SAC Code: 999293 · Company Registration No.: 16952003",
+            f_ftr_2
+        ))
+        elements.append(Spacer(1, 2))
+        elements.append(Paragraph(
+            "Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom · admissions@avemariacareer.co.uk",
+            f_ftr_2
+        ))
+
+        # Build document
+        doc.build(elements)
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+
+        clean_inv_no = invoice_number.replace('#', '').strip()
+        filename = f"Tax_Invoice_{clean_inv_no}.pdf"
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        disposition = 'attachment' if request.query_params.get('download') == '1' else 'inline'
+        response['Content-Disposition'] = f'{disposition}; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response

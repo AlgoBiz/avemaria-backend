@@ -139,12 +139,15 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     student_name = serializers.CharField(source='student.name', read_only=True)
     invoice_number = serializers.SerializerMethodField()
+    invoice_download_url = serializers.SerializerMethodField()
+    invoice_view_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PaymentTransaction
         fields = (
             'id', 'uuid', 'item_type', 'item_type_display', 'item_id', 'item_title',
             'amount', 'currency', 'status', 'status_display', 'invoice_number',
+            'invoice_download_url', 'invoice_view_url',
             'receipt_number', 'stripe_session_id', 'completed_at', 'created_at',
             'student_name'
         )
@@ -177,6 +180,16 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
 
         student_id = obj.student_id or (obj.student.id if obj.student else 1)
         return f"#INV-2026-{1042 - (student_id - 1) * 3:04d}"
+
+    def get_invoice_download_url(self, obj):
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        path = f"/api/v1/payments/transactions/{obj.uuid_str}/invoice/?download=1"
+        return request.build_absolute_uri(path) if request else path
+
+    def get_invoice_view_url(self, obj):
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        path = f"/api/v1/payments/transactions/{obj.uuid_str}/invoice/"
+        return request.build_absolute_uri(path) if request else path
 
 class PaymentTransactionDetailSerializer(PaymentTransactionSerializer):
     student_email = serializers.EmailField(source='student.email', read_only=True)
