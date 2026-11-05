@@ -49,6 +49,17 @@ def get_student_invoice_payload(student, request=None):
         .order_by('-purchased_at', '-id')
     )
 
+    # 3. Fetch all completed payment transactions
+    from apps.payments.models import PaymentTransaction
+    transactions = list(
+        PaymentTransaction.objects.filter(
+            student=student,
+            status__in=['succeeded', 'success', 'paid']
+        ).order_by('-completed_at', '-created_at', '-id')
+    )
+
+    matched_tx_ids = set()
+
     line_items = []
     sl_no = 1
     latest_dt = None
@@ -80,6 +91,20 @@ def get_student_invoice_payload(student, request=None):
         })
         sl_no += 1
 
+        # Match corresponding transaction
+        for t in transactions:
+            if t.id in matched_tx_ids:
+                continue
+            if t.stripe_session_id and e.order_id and t.stripe_session_id == e.order_id:
+                matched_tx_ids.add(t.id)
+                break
+            if t.receipt_number and e.receipt_number and t.receipt_number == e.receipt_number:
+                matched_tx_ids.add(t.id)
+                break
+            if t.item_type == 'course' and t.item_id == e.course_id:
+                matched_tx_ids.add(t.id)
+                break
+
     for p in purchases:
         r = p.resource
         title = r.title if r else "Study Resource"
@@ -95,6 +120,55 @@ def get_student_invoice_payload(student, request=None):
             'description': title,
             'subtext': subtext,
             'type': 'Resource',
+            'sac_hsn': '999293',
+            'qty': 1,
+            'taxable_base': base,
+            'taxable_base_formatted': f"£{base:.2f}",
+            'gst_18': gst,
+            'gst_18_formatted': f"£{gst:.2f}",
+            'total_amount': tot,
+            'total_amount_formatted': f"£{tot:.2f}",
+            'dt': dt,
+        })
+        sl_no += 1
+
+        # Match corresponding transaction
+        for t in transactions:
+            if t.id in matched_tx_ids:
+                continue
+            if t.stripe_session_id and p.order_id and t.stripe_session_id == p.order_id:
+                matched_tx_ids.add(t.id)
+                break
+            if t.receipt_number and p.receipt_number and t.receipt_number == p.receipt_number:
+                matched_tx_ids.add(t.id)
+                break
+            if t.item_type == 'resource' and t.item_id == p.resource_id:
+                matched_tx_ids.add(t.id)
+                break
+
+    # 4. Add any additional payment transactions not yet accounted for
+    for t in transactions:
+        if t.id in matched_tx_ids:
+            continue
+        is_course = (t.item_type == 'course')
+        item_type = 'Course' if is_course else 'Resource'
+        title = t.item_title or ('Course Enrollment' if is_course else 'Study Resource')
+        subtext = (
+            "Comprehensive curriculum, lecture coaching, and verified exam pack (SAC 999293)"
+            if is_course
+            else "Study resource material, revision guide, and verified exam practice pack (SAC 999293)"
+        )
+        tot = float(t.amount) if t.amount is not None else 0.0
+        base = round(tot / 1.18, 2)
+        gst = round(tot - base, 2)
+        dt = t.completed_at or t.created_at
+        if not latest_dt or (dt and dt > latest_dt):
+            latest_dt = dt
+        line_items.append({
+            'sl_no': sl_no,
+            'description': title,
+            'subtext': subtext,
+            'type': item_type,
             'sac_hsn': '999293',
             'qty': 1,
             'taxable_base': base,
