@@ -771,6 +771,52 @@ def resolve_payment_transaction(lookup_id, user):
                         }
                     )
 
+        if not tx:
+            st_qs = Student.objects.filter(is_deleted=False)
+            st_obj = None
+            if parsed_uuid:
+                st_obj = st_qs.filter(uuid=parsed_uuid).first()
+            if not st_obj and lookup.isdigit():
+                st_obj = st_qs.filter(id=int(lookup)).first()
+            if not st_obj:
+                st_obj = st_qs.filter(slug=lookup).first()
+            if st_obj:
+                tx = qs.filter(student=st_obj).order_by('-completed_at', '-created_at').first()
+                if not tx:
+                    enr = CourseEnrollment.objects.filter(student=st_obj, is_deleted=False).first()
+                    if enr:
+                        tx, _ = PaymentTransaction.objects.get_or_create(
+                            student=st_obj,
+                            item_type='course',
+                            item_id=enr.course_id,
+                            defaults={
+                                'item_title': enr.course.title if enr.course else 'Course',
+                                'amount': enr.amount_paid or (enr.course.fee if enr.course else Decimal('0.00')),
+                                'currency': get_stripe_currency(enr.currency),
+                                'status': 'succeeded' if enr.payment_status == 'paid' else enr.payment_status,
+                                'stripe_session_id': enr.order_id or '',
+                                'receipt_number': enr.receipt_number or '',
+                                'completed_at': enr.enrolled_at or enr.created_at,
+                            }
+                        )
+                    else:
+                        pur = ResourcePurchase.objects.filter(student=st_obj, is_deleted=False).first()
+                        if pur:
+                            tx, _ = PaymentTransaction.objects.get_or_create(
+                                student=st_obj,
+                                item_type='resource',
+                                item_id=pur.resource_id,
+                                defaults={
+                                    'item_title': pur.resource.title if pur.resource else 'Study Resource',
+                                    'amount': pur.amount_paid or (pur.resource.price if pur.resource else Decimal('0.00')),
+                                    'currency': get_stripe_currency(pur.currency),
+                                    'status': 'succeeded' if pur.payment_status == 'paid' else pur.payment_status,
+                                    'stripe_session_id': pur.order_id or '',
+                                    'receipt_number': pur.receipt_number or '',
+                                    'completed_at': pur.purchased_at or pur.created_at,
+                                }
+                            )
+
     if not tx:
         return None, Response(
             {"detail": f"Payment transaction '{lookup_id}' not found."},
@@ -854,57 +900,77 @@ class DownloadPaymentInvoicePdfView(APIView):
             return err
 
         # 3. Dynamic data resolution
+        from api.v1.students.views import get_student_invoice_payload
         student = tx.student
-        student_name = student.name or (student.user.display_name if student.user else '') or student.email
-        student_email = student.email or ''
-        student_phone = student.phone or '+44 7867898789'
-        student_location = student.location or student.city or student.country or '-'
+        payload = get_student_invoice_payload(student, request=request)
+
+        student_name = payload['billed_to']['name'] or student.name or (student.user.display_name if student.user else '') or student.email
+        student_email = payload['billed_to']['email'] or student.email or ''
+        student_phone = payload['billed_to']['phone'] or student.phone or '+44 7867898789'
+        student_location = payload['billed_to']['location'] or student.location or student.city or student.country or '-'
 
         tx_serializer = PaymentTransactionSerializer()
-        invoice_number = tx_serializer.get_invoice_number(tx)
-
-        dt = tx.completed_at or tx.created_at
-        invoice_date_str = dt.strftime('%d %b %Y') if dt else timezone.now().strftime('%d %b %Y')
-
-        total_amount = float(tx.amount)
-        base_amount = round(total_amount / 1.18, 2)
-        gst_amount = round(total_amount - base_amount, 2)
-        cgst_9 = round(gst_amount / 2, 2)
-        sgst_9 = round(gst_amount - cgst_9, 2)
+        invoice_number = payload['invoice']['invoice_number'] or tx_serializer.get_invoice_number(tx)
+        invoice_date_str = payload['invoice']['issue_date']
 
         curr_code = str(tx.currency or 'gbp').lower()
         curr_sym = '£' if curr_code in ('gbp', '£') else ('$' if curr_code in ('usd', '$') else ('€' if curr_code in ('eur', '€') else f"{tx.currency.upper()} "))
 
-        item_type_label = 'Course' if tx.item_type == 'course' else 'Resource'
-        item_title = tx.item_title or ('Course Enrollment' if tx.item_type == 'course' else 'Study Resource')
-        if tx.item_type == 'course':
-            item_subtitle = "Comprehensive curriculum, lecture coaching, and verified exam pack (SAC 999293)"
+        is_single = request.query_params.get('single') == '1'
+        if is_single:
+            total_amount = float(tx.amount)
+            base_amount = round(total_amount / 1.18, 2)
+            gst_amount = round(total_amount - base_amount, 2)
+            cgst_9 = round(gst_amount / 2, 2)
+            sgst_9 = round(gst_amount - cgst_9, 2)
+            item_type_label = 'Course' if tx.item_type == 'course' else 'Resource'
+            item_title = tx.item_title or ('Course Enrollment' if tx.item_type == 'course' else 'Study Resource')
+            item_subtitle = (
+                "Comprehensive curriculum, lecture coaching, and verified exam pack (SAC 999293)"
+                if tx.item_type == 'course'
+                else "Study resource material, revision guide, and verified exam practice pack (SAC 999293)"
+            )
+            line_items_data = [{
+                'description': item_title,
+                'subtext': item_subtitle,
+                'type': item_type_label,
+                'taxable_base': base_amount,
+                'gst_18': gst_amount,
+                'total_amount': total_amount,
+            }]
         else:
-            item_subtitle = "Study resource material, revision guide, and verified exam practice pack (SAC 999293)"
+            total_amount = payload['totals']['total_paid']
+            base_amount = payload['totals']['taxable_base_value']
+            gst_amount = payload['totals']['total_gst_18']
+            cgst_9 = payload['totals']['cgst_9']
+            sgst_9 = payload['totals']['sgst_9']
+            line_items_data = payload['line_items']
 
         # Return JSON if requested
         if request.query_params.get('format') == 'json':
-            return Response({
-                "invoice_number": invoice_number,
-                "invoice_date": invoice_date_str,
-                "student": {
-                    "name": student_name,
-                    "email": student_email,
-                    "phone": student_phone,
-                    "location": student_location,
-                },
-                "item": {
-                    "title": item_title,
-                    "type": item_type_label,
-                    "subtitle": item_subtitle,
-                    "total_amount": total_amount,
-                    "base_amount": base_amount,
-                    "gst_amount": gst_amount,
-                    "cgst_9": cgst_9,
-                    "sgst_9": sgst_9,
-                    "currency": curr_sym,
-                }
-            }, status=status.HTTP_200_OK)
+            if is_single:
+                return Response({
+                    "invoice_number": invoice_number,
+                    "invoice_date": invoice_date_str,
+                    "student": {
+                        "name": student_name,
+                        "email": student_email,
+                        "phone": student_phone,
+                        "location": student_location,
+                    },
+                    "item": {
+                        "title": item_title,
+                        "type": item_type_label,
+                        "subtitle": item_subtitle,
+                        "total_amount": total_amount,
+                        "base_amount": base_amount,
+                        "gst_amount": gst_amount,
+                        "cgst_9": cgst_9,
+                        "sgst_9": sgst_9,
+                        "currency": curr_sym,
+                    }
+                }, status=status.HTTP_200_OK)
+            return Response(payload, status=status.HTTP_200_OK)
 
         # 4. Generate Pixel-Accurate Single A4 PDF
         from reportlab.lib.pagesizes import A4
@@ -1066,9 +1132,9 @@ class DownloadPaymentInvoicePdfView(APIView):
         b_right = [
             Paragraph("<b>ORDER &amp; PAYMENT DETAILS</b>", f_card_hdr),
             Spacer(1, 4),
-            Paragraph("<b>Payment Mode:</b> Card / Stripe Online", f_ord_txt),
-            Paragraph("<b>Tax Treatment:</b> Inclusive of 18% GST (SAC: 999293)", f_ord_txt),
-            Paragraph("<b>Enrolment Status:</b> Active &amp; Verified on Portal", f_ord_txt),
+            Paragraph(f"<b>Payment Mode:</b> {payload['invoice']['payment_method']}", f_ord_txt),
+            Paragraph(f"<b>Tax Treatment:</b> {payload['invoice']['tax_rate']}", f_ord_txt),
+            Paragraph(f"<b>Enrolment Status:</b> {payload['invoice']['status']}", f_ord_txt),
             Paragraph(f"<b>Invoice Ref:</b> {invoice_number}", f_ord_txt),
         ]
 
@@ -1094,24 +1160,6 @@ class DownloadPaymentInvoicePdfView(APIView):
         f_cell_c = ParagraphStyle('CC', fontName='Helvetica', fontSize=8, leading=10, textColor=c_navy, alignment=1)
         f_cell_tot = ParagraphStyle('CTOT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy, alignment=2)
 
-        type_pill = Table(
-            [[Paragraph(f"<b>{item_type_label}</b>", ParagraphStyle('TP', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_blue, alignment=1))]],
-            colWidths=[46]
-        )
-        type_pill.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), c_blue_bg),
-            ('BOX', (0,0), (-1,-1), 0.5, c_blue_border),
-            ('TOPPADDING', (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ]))
-
-        desc_cell = [
-            Paragraph(f"<b>{item_title}</b>", ParagraphStyle('IT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy)),
-            Spacer(1, 2),
-            Paragraph(item_subtitle, ParagraphStyle('IS', fontName='Helvetica', fontSize=7, leading=9, textColor=c_muted)),
-        ]
-
         items_table_data = [
             [
                 Paragraph("<b>DESCRIPTION</b>", f_tbl_hdr),
@@ -1120,28 +1168,50 @@ class DownloadPaymentInvoicePdfView(APIView):
                 Paragraph("<b>TAXABLE BASE</b>", f_tbl_hdr_r),
                 Paragraph("<b>GST (18%)</b>", f_tbl_hdr_r),
                 Paragraph("<b>TOTAL AMOUNT</b>", f_tbl_hdr_r)
-            ],
-            [
-                desc_cell,
-                type_pill,
-                Paragraph("1", f_cell_c),
-                Paragraph(f"{curr_sym}{base_amount:.2f}", f_cell_r),
-                Paragraph(f"{curr_sym}{gst_amount:.2f}", f_cell_r),
-                Paragraph(f"<b>{curr_sym}{total_amount:.2f}</b>", f_cell_tot)
             ]
         ]
 
+        for item in line_items_data:
+            type_pill = Table(
+                [[Paragraph(f"<b>{item['type']}</b>", ParagraphStyle('TP', fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=c_blue, alignment=1))]],
+                colWidths=[46]
+            )
+            type_pill.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), c_blue_bg),
+                ('BOX', (0,0), (-1,-1), 0.5, c_blue_border),
+                ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ]))
+
+            desc_cell = [
+                Paragraph(f"<b>{item['description']}</b>", ParagraphStyle('IT', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=c_navy)),
+                Spacer(1, 2),
+                Paragraph(item.get('subtext', ''), ParagraphStyle('IS', fontName='Helvetica', fontSize=7, leading=9, textColor=c_muted)),
+            ]
+
+            items_table_data.append([
+                desc_cell,
+                type_pill,
+                Paragraph("1", f_cell_c),
+                Paragraph(f"{curr_sym}{item['taxable_base']:.2f}", f_cell_r),
+                Paragraph(f"{curr_sym}{item['gst_18']:.2f}", f_cell_r),
+                Paragraph(f"<b>{curr_sym}{item['total_amount']:.2f}</b>", f_cell_tot)
+            ])
+
         items_table = Table(items_table_data, colWidths=[220, 56, 32, 72, 72, 79])
-        items_table.setStyle(TableStyle([
+        items_table_styles = [
             ('LINEBELOW', (0,0), (-1,0), 0.5, c_border),
-            ('LINEBELOW', (0,1), (-1,1), 0.5, c_border),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('VALIGN', (0,1), (0,1), 'TOP'),
+            ('VALIGN', (0,1), (0,-1), 'TOP'),
             ('TOPPADDING', (0,0), (-1,-1), 7),
             ('BOTTOMPADDING', (0,0), (-1,-1), 7),
             ('LEFTPADDING', (0,0), (-1,-1), 0),
             ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ]))
+        ]
+        for r_idx in range(1, len(items_table_data)):
+            items_table_styles.append(('LINEBELOW', (0, r_idx), (-1, r_idx), 0.5, c_border))
+        items_table.setStyle(TableStyle(items_table_styles))
         elements.append(items_table)
         elements.append(Spacer(1, 16))
 
