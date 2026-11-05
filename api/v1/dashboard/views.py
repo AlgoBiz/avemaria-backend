@@ -28,7 +28,7 @@ class DashboardOverviewView(APIView):
     def get(self, request):
         total_users = Student.objects.filter(is_deleted=False).count()
         total_courses = Course.objects.filter(is_published=True, is_deleted=False).count()
-        active_users = Student.objects.filter(status='active', is_suspended=False, is_deleted=False).count()
+        active_users = Student.objects.filter(is_suspended=False, is_deleted=False, is_active=True).exclude(status__in=['inactive', 'suspended']).count()
         total_documents_uploaded = ResourcePDF.objects.filter(is_deleted=False).count()
         categories_count = Category.objects.filter(is_deleted=False).count()
         resource_pools_count = PaidResource.objects.filter(is_deleted=False).count()

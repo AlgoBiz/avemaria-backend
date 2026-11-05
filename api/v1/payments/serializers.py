@@ -136,7 +136,8 @@ class StripeWebhookPayloadSerializer(serializers.Serializer):
 class PaymentTransactionSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
     item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    status = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
     student_name = serializers.CharField(source='student.name', read_only=True)
     invoice_number = serializers.SerializerMethodField()
     invoice_download_url = serializers.SerializerMethodField()
@@ -180,6 +181,34 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
 
         student_id = obj.student_id or (obj.student.id if obj.student else 1)
         return f"#INV-2026-{1042 - (student_id - 1) * 3:04d}"
+
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        val = str(getattr(obj, 'status', '') or '').lower()
+        if val in ('succeeded', 'success', 'paid'):
+            return 'success'
+        return val
+
+    @extend_schema_field(serializers.CharField())
+    def get_status_display(self, obj):
+        val = str(getattr(obj, 'status', '') or '').lower()
+        if val in ('succeeded', 'success', 'paid'):
+            return 'Success'
+        disp = getattr(obj, 'get_status_display', None)
+        if callable(disp):
+            res = disp()
+            if str(res).lower() in ('succeeded', 'success', 'paid'):
+                return 'Success'
+            return res
+        return val.title()
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        val = str(getattr(instance, 'status', '') or '').lower()
+        if val in ('succeeded', 'success', 'paid'):
+            ret['status'] = 'success'
+            ret['status_display'] = 'Success'
+        return ret
 
     def get_invoice_download_url(self, obj):
         request = self.context.get('request') if hasattr(self, 'context') else None

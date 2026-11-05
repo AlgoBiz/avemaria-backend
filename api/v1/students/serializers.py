@@ -334,6 +334,10 @@ class StudentSerializer(StudentOrderFieldsMixin, serializers.ModelSerializer):
     location = serializers.SerializerMethodField()
     purchased_resource_details = serializers.SerializerMethodField()
     opted_course_details = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    is_suspended = serializers.BooleanField(read_only=True)
+    suspension_reason = serializers.CharField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Student
@@ -348,8 +352,18 @@ class StudentSerializer(StudentOrderFieldsMixin, serializers.ModelSerializer):
             'location',
             'purchased_resource_details',
             'opted_course_details',
+            'status',
+            'is_suspended',
+            'suspension_reason',
+            'is_active',
         )
         read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        if getattr(obj, 'is_suspended', False):
+            return 'suspended'
+        return obj.status or 'active'
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
@@ -361,8 +375,12 @@ class StudentSerializer(StudentOrderFieldsMixin, serializers.ModelSerializer):
         ordered['id'] = str(instance.uuid)
         ordered['student_name'] = instance.name
         ordered['email'] = instance.email
-        ordered['phone'] = instance.phone or ""
+        ordered['phone'] = instance.phone or ''
         ordered['slug'] = instance.slug
+        ordered['is_suspended'] = bool(instance.is_suspended)
+        ordered['status'] = 'suspended' if instance.is_suspended else (instance.status or 'active')
+        ordered['suspension_reason'] = instance.suspension_reason or ''
+        ordered['is_active'] = (not instance.is_suspended) and bool(instance.is_active)
         return ordered
 
 
@@ -532,6 +550,12 @@ class StudentDetailSerializer(StudentOrderFieldsMixin, serializers.ModelSerializ
         e_count = CourseEnrollment.objects.filter(student=obj, is_deleted=False).count()
         return max(p_count + e_count, 1)
 
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        if getattr(obj, 'is_suspended', False):
+            return 'suspended'
+        return obj.status or 'active'
+
     def to_representation(self, instance):
         ret = super().to_representation(instance)
         from collections import OrderedDict
@@ -542,6 +566,10 @@ class StudentDetailSerializer(StudentOrderFieldsMixin, serializers.ModelSerializ
         ordered['id'] = str(instance.uuid)
         ordered['slug'] = instance.slug
         ordered['full_name'] = instance.name
+        ordered['is_suspended'] = bool(instance.is_suspended)
+        ordered['status'] = 'suspended' if instance.is_suspended else (instance.status or 'active')
+        ordered['suspension_reason'] = instance.suspension_reason or ''
+        ordered['is_active'] = (not instance.is_suspended) and bool(instance.is_active)
         return ordered
 
 
