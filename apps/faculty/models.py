@@ -10,9 +10,9 @@ class Faculty(BaseModel):
     )
 
     name = models.CharField(max_length=150, help_text="Full name of faculty member / mentor, e.g. Dr. Sarah Jenkins")
-    title = models.CharField(max_length=150, blank=True, default="", help_text="Designation / Title, e.g. Clinical Biochemistry Lead")
+    title = models.CharField(max_length=800, blank=True, default="", help_text="Designation / Title, e.g. Clinical Biochemistry Lead")
     qualification = models.CharField(max_length=1000, blank=True, default="", help_text="Academic & professional qualifications, e.g. PhD, FRCPath, HCPC Reg")
-    experience = models.CharField(max_length=150, blank=True, default="", help_text="Years / description of experience, e.g. 15+ Years Clinical & Academic Experience")
+    experience = models.CharField(max_length=800, blank=True, default="", help_text="Years / description of experience, e.g. 15+ Years Clinical & Academic Experience")
     department = models.CharField(max_length=150, blank=True, default="", help_text="Department / Specialization, e.g. Biomedical Science")
     specialities = JSONDataField(
         default=list, blank=True,

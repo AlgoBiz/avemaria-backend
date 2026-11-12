@@ -83,19 +83,29 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
         attrs['title'] = cleaned
 
         cat_slug = slugify(cleaned)
+        # Any old soft-deleted category with the same title or slug is permanently purged, freeing the name immediately for re-creation
+        soft_deleted_qs = Category.objects.filter(
+            models.Q(title__iexact=cleaned) | models.Q(slug=cat_slug),
+            is_deleted=True
+        )
+        if self.instance:
+            soft_deleted_qs = soft_deleted_qs.exclude(pk=self.instance.pk)
+        for old_cat in soft_deleted_qs:
+            if old_cat.cover_image:
+                try:
+                    old_cat.cover_image.delete(save=False)
+                except Exception:
+                    pass
+        soft_deleted_qs.delete()
+
         existing_qs = Category.objects.filter(
             models.Q(title__iexact=cleaned) | models.Q(slug=cat_slug)
         )
         if self.instance:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
 
-        existing = existing_qs.first()
-        if existing:
-            if not self.instance and existing.is_deleted:
-                # Soft-deleted record will be restored in create()
-                pass
-            else:
-                raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
+        if existing_qs.exists():
+            raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
 
         if attrs.get('is_featured'):
             featured_qs = Category.objects.filter(is_featured=True, is_deleted=False)
@@ -109,18 +119,26 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         title = validated_data.get('title')
-        cat_slug = slugify(title)
-        existing = Category.objects.filter(
-            models.Q(title__iexact=title) | models.Q(slug=cat_slug)
-        ).first()
-        if existing:
-            if existing.is_deleted:
-                existing.is_deleted = False
-                for k, v in validated_data.items():
-                    setattr(existing, k, v)
-                existing.save()
-                return existing
-            raise serializers.ValidationError({"title": f"Course category '{title}' already exists."})
+        if title:
+            cat_slug = slugify(title)
+            # Any old soft-deleted category with the same title or slug is permanently purged, freeing the name immediately for re-creation
+            soft_deleted_qs = Category.objects.filter(
+                models.Q(title__iexact=title) | models.Q(slug=cat_slug),
+                is_deleted=True
+            )
+            for old_cat in soft_deleted_qs:
+                if old_cat.cover_image:
+                    try:
+                        old_cat.cover_image.delete(save=False)
+                    except Exception:
+                        pass
+            soft_deleted_qs.delete()
+
+            existing = Category.objects.filter(
+                models.Q(title__iexact=title) | models.Q(slug=cat_slug)
+            ).first()
+            if existing:
+                raise serializers.ValidationError({"title": f"Course category '{title}' already exists."})
         return super().create(validated_data)
 
 
@@ -210,19 +228,29 @@ class CategorySerializer(serializers.ModelSerializer):
         attrs['title'] = cleaned
 
         cat_slug = slugify(cleaned)
+        # Any old soft-deleted category with the same title or slug is permanently purged, freeing the name immediately for re-creation
+        soft_deleted_qs = Category.objects.filter(
+            models.Q(title__iexact=cleaned) | models.Q(slug=cat_slug),
+            is_deleted=True
+        )
+        if self.instance:
+            soft_deleted_qs = soft_deleted_qs.exclude(pk=self.instance.pk)
+        for old_cat in soft_deleted_qs:
+            if old_cat.cover_image:
+                try:
+                    old_cat.cover_image.delete(save=False)
+                except Exception:
+                    pass
+        soft_deleted_qs.delete()
+
         existing_qs = Category.objects.filter(
             models.Q(title__iexact=cleaned) | models.Q(slug=cat_slug)
         )
         if self.instance:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
 
-        existing = existing_qs.first()
-        if existing:
-            if not self.instance and existing.is_deleted:
-                # Soft-deleted record will be restored in create()
-                pass
-            else:
-                raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
+        if existing_qs.exists():
+            raise serializers.ValidationError({"title": f"Course category '{cleaned}' already exists."})
 
         if attrs.get('is_featured'):
             featured_qs = Category.objects.filter(is_featured=True, is_deleted=False)
@@ -236,18 +264,26 @@ class CategorySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         title = validated_data.get('title')
-        cat_slug = slugify(title)
-        existing = Category.objects.filter(
-            models.Q(title__iexact=title) | models.Q(slug=cat_slug)
-        ).first()
-        if existing:
-            if existing.is_deleted:
-                existing.is_deleted = False
-                for k, v in validated_data.items():
-                    setattr(existing, k, v)
-                existing.save()
-                return existing
-            raise serializers.ValidationError({"title": f"Course category '{title}' already exists."})
+        if title:
+            cat_slug = slugify(title)
+            # Any old soft-deleted category with the same title or slug is permanently purged, freeing the name immediately for re-creation
+            soft_deleted_qs = Category.objects.filter(
+                models.Q(title__iexact=title) | models.Q(slug=cat_slug),
+                is_deleted=True
+            )
+            for old_cat in soft_deleted_qs:
+                if old_cat.cover_image:
+                    try:
+                        old_cat.cover_image.delete(save=False)
+                    except Exception:
+                        pass
+            soft_deleted_qs.delete()
+
+            existing = Category.objects.filter(
+                models.Q(title__iexact=title) | models.Q(slug=cat_slug)
+            ).first()
+            if existing:
+                raise serializers.ValidationError({"title": f"Course category '{title}' already exists."})
         return super().create(validated_data)
 
     @extend_schema_field(serializers.CharField())
