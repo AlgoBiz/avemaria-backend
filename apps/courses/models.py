@@ -84,9 +84,9 @@ class Course(BaseModel):
         help_text="Selected Faculty member from the faculty list"
     )
     faculty_name = models.CharField(max_length=150, blank=True, default="")
-    faculty_title = models.CharField(max_length=150, blank=True, default="")
-    faculty_qualification = models.CharField(max_length=255, blank=True, default="", help_text="e.g. PhD (Clinical Biochemistry), FRCPath, HCPC Reg")
-    faculty_experience = models.CharField(max_length=150, blank=True, default="", help_text="e.g. 15+ Years Clinical & Academic Experience")
+    faculty_title = models.CharField(max_length=800, blank=True, default="")
+    faculty_qualification = models.CharField(max_length=800, blank=True, default="", help_text="e.g. PhD (Clinical Biochemistry), FRCPath, HCPC Reg")
+    faculty_experience = models.CharField(max_length=800, blank=True, default="", help_text="e.g. 15+ Years Clinical & Academic Experience")
     faculty_bio = models.TextField(blank=True, null=True)
     faculty_image = models.ImageField(upload_to='faculty/', null=True, blank=True)
 

@@ -26,6 +26,24 @@ class Category(BaseModel):
 
         if self.title:
             self.title = ' '.join(str(self.title).strip().split())
+
+        # Purge soft-deleted duplicates before unique slug generation
+        if self.title:
+            base_slug = slugify(self.title) or 'category'
+            soft_deleted = Category.objects.filter(
+                models.Q(title__iexact=self.title) | models.Q(slug=base_slug) | (models.Q(slug=self.slug) if self.slug else models.Q()),
+                is_deleted=True
+            )
+            if self.pk:
+                soft_deleted = soft_deleted.exclude(pk=self.pk)
+            for cat in soft_deleted:
+                if cat.cover_image:
+                    try:
+                        cat.cover_image.delete(save=False)
+                    except Exception:
+                        pass
+            soft_deleted.delete()
+
         if not self.slug:
             base_slug = slugify(self.title) or 'category'
             unique_slug = base_slug
