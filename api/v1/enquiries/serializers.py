@@ -1,6 +1,37 @@
+import uuid
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from apps.enquiries.models import Enquiry
+from apps.enquiries.emails import send_enquiry_notification_email
+from apps.faculty.models import Faculty
+
+
+def _resolve_faculty(value):
+    """Resolve a Faculty instance from UUID, integer ID, slug, or name."""
+    if not value:
+        return None
+    if isinstance(value, Faculty):
+        return value
+    val_str = str(value).strip()
+    if not val_str:
+        return None
+    qs = Faculty.objects.filter(is_deleted=False)
+    try:
+        u = uuid.UUID(val_str)
+        obj = qs.filter(uuid=u).first()
+        if obj:
+            return obj
+    except (ValueError, TypeError):
+        pass
+    if val_str.isdigit():
+        obj = qs.filter(id=int(val_str)).first()
+        if obj:
+            return obj
+    obj = qs.filter(slug__iexact=val_str).first()
+    if obj:
+        return obj
+    return qs.filter(name__iexact=val_str).first()
+
 
 class EnquiryCreateSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='uuid_str', read_only=True)
@@ -10,6 +41,12 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
     subject = serializers.CharField(required=False, allow_blank=True)
     message = serializers.CharField(required=True)
     email = serializers.EmailField(required=True)
+
+    enquiry_type = serializers.CharField(required=False, allow_blank=True, default='')
+    faculty = serializers.CharField(required=False, allow_blank=True, allow_null=True, write_only=True)
+    faculty_name = serializers.CharField(required=False, allow_blank=True, default='')
+    custom_requirement = serializers.CharField(required=False, allow_blank=True, default='')
+    routed_to_email = serializers.EmailField(read_only=True)
 
     # Backward-compatible input fields
     candidate_name = serializers.CharField(required=False, write_only=True)
@@ -24,11 +61,13 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         model = Enquiry
         fields = (
             'id', 'slug', 'full_name', 'email', 'phone',
-            'course_name', 'subject', 'message',
+            'course_name', 'enquiry_type', 'faculty', 'faculty_name',
+            'custom_requirement', 'routed_to_email',
+            'subject', 'message',
             'candidate_name', 'name', 'topic', 'programme_interest',
             'status', 'status_display', 'created_at'
         )
-        read_only_fields = ('id', 'slug', 'created_at')
+        read_only_fields = ('id', 'slug', 'routed_to_email', 'created_at')
         extra_kwargs = {
             'candidate_name': {'write_only': True, 'required': False},
             'name': {'write_only': True, 'required': False},
@@ -91,6 +130,32 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
                     data['message'] = data[alias]
                     break
 
+        # Enquiry type aliases
+        if not data.get('enquiry_type'):
+            for alias in ['inquiry_type', 'type', 'department', 'enquiry_category', 'sub_category', 'sub_type']:
+                if data.get(alias):
+                    data['enquiry_type'] = data[alias]
+                    break
+
+        # Faculty aliases
+        if not data.get('faculty'):
+            for alias in ['faculty_id', 'mentor', 'mentor_id']:
+                if data.get(alias):
+                    data['faculty'] = data[alias]
+                    break
+        if not data.get('faculty_name'):
+            for alias in ['mentor_name']:
+                if data.get(alias):
+                    data['faculty_name'] = data[alias]
+                    break
+
+        # Custom requirement aliases
+        if not data.get('custom_requirement'):
+            for alias in ['requirement', 'specify_requirement', 'custom_course', 'other_requirement', 'specify']:
+                if data.get(alias):
+                    data['custom_requirement'] = data[alias]
+                    break
+
         return super().to_internal_value(data)
 
     def validate(self, attrs):
@@ -104,6 +169,7 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         validated_data.pop('name', None)
         full_name = validated_data.pop('full_name', None)
         course_name = validated_data.pop('course_name', None)
+        faculty_raw = validated_data.pop('faculty', None)
 
         if not validated_data.get('candidate_name') and full_name:
             validated_data['candidate_name'] = full_name
@@ -116,6 +182,25 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
             else:
                 validated_data['topic'] = 'Licensing preparation'
 
+        # Resolve faculty from UUID / ID / slug / name (fallback to faculty_name if needed)
+        faculty_obj = _resolve_faculty(faculty_raw) or _resolve_faculty(validated_data.get('faculty_name'))
+        if faculty_obj:
+            validated_data['faculty'] = faculty_obj
+            if not validated_data.get('faculty_name'):
+                validated_data['faculty_name'] = faculty_obj.name
+        elif faculty_raw and not validated_data.get('faculty_name'):
+            validated_data['faculty_name'] = str(faculty_raw).strip()
+
+        # Infer enquiry_type if omitted but topic itself is a known department type
+        if not validated_data.get('enquiry_type'):
+            topic_lower = str(validated_data.get('topic', '')).strip().lower()
+            if topic_lower in {
+                'general enquiry', 'general', 'admission', 'admissions',
+                'support', 'payment', 'payments', 'complaints', 'complaint',
+                'privacy', 'faculty'
+            }:
+                validated_data['enquiry_type'] = validated_data['topic']
+
         if subject:
             original_msg = validated_data.get('message', '')
             if not original_msg.startswith(f"{subject}:"):
@@ -124,6 +209,7 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         validated_data['status'] = 'new'
         instance = super().create(validated_data)
         instance._submitted_subject = subject
+        send_enquiry_notification_email(instance)
         return instance
 
     def to_representation(self, instance):
@@ -133,6 +219,11 @@ class EnquiryCreateSerializer(serializers.ModelSerializer):
         # Populate full_name and course_name
         ret['full_name'] = instance.candidate_name
         ret['course_name'] = instance.topic
+        ret['enquiry_type'] = instance.enquiry_type
+        ret['faculty_id'] = str(instance.faculty.uuid) if instance.faculty else None
+        ret['faculty_name'] = instance.faculty_name or (instance.faculty.name if instance.faculty else '')
+        ret['custom_requirement'] = instance.custom_requirement
+        ret['routed_to_email'] = instance.routed_to_email
 
         # Extract subject and message
         if hasattr(instance, '_submitted_subject') and instance._submitted_subject:
@@ -169,11 +260,12 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
         model = Enquiry
         fields = (
             'id', 'slug', 'full_name', 'email', 'phone', 'course_name',
+            'enquiry_type', 'faculty_name', 'custom_requirement', 'routed_to_email',
             'subject', 'message', 'status',
             'is_active', 'is_deleted',
             'received', 'created_at', 'updated_at'
         )
-        read_only_fields = ('id', 'slug', 'received', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'slug', 'received', 'routed_to_email', 'created_at', 'updated_at')
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'is_deleted': {'default': False, 'required': False},
@@ -184,6 +276,8 @@ class EnquiryAdminSerializer(serializers.ModelSerializer):
         ret = super().to_representation(instance)
         ret['id'] = str(instance.uuid)
         ret['slug'] = instance.slug
+        ret['faculty_id'] = str(instance.faculty.uuid) if instance.faculty else None
+        ret['faculty_name'] = instance.faculty_name or (instance.faculty.name if instance.faculty else '')
         if not ret.get('subject'):
             ret['subject'] = instance.inquiry_subject or instance.topic
         if not ret.get('message'):

@@ -12,6 +12,37 @@ class Enquiry(BaseModel):
     email = models.EmailField()
     phone = models.CharField(max_length=50, blank=True, null=True)
     topic = models.CharField(max_length=150, help_text="Course or discipline consulted for")
+    enquiry_type = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text="Enquiry type / department (e.g. General Enquiry, Admission, Support, Payment, Complaints, Privacy, Faculty)"
+    )
+    faculty = models.ForeignKey(
+        'faculty.Faculty',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='enquiries',
+        help_text="Selected faculty member when enquiry type is Faculty"
+    )
+    faculty_name = models.CharField(
+        max_length=150,
+        blank=True,
+        default='',
+        help_text="Selected faculty member name snapshot"
+    )
+    custom_requirement = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="Optional custom course, exam or requirement specified by user"
+    )
+    routed_to_email = models.EmailField(
+        blank=True,
+        default='',
+        help_text="Department or faculty email address this enquiry was routed to"
+    )
     message = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
     slug = models.SlugField(max_length=180, blank=True, default='', db_index=True)
