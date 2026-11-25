@@ -23,7 +23,7 @@ class EnquiryViewSet(viewsets.ModelViewSet):
     queryset = Enquiry.objects.filter(is_deleted=False)
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['candidate_name', 'email', 'phone', 'topic', 'message']
+    search_fields = ['candidate_name', 'email', 'phone', 'topic', 'enquiry_type', 'faculty_name', 'custom_requirement', 'routed_to_email', 'message']
     ordering_fields = ['created_at', 'status']
     ordering = ['-created_at', '-id']
 
@@ -72,6 +72,9 @@ class EnquiryViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(status='resolved')
             else:
                 qs = qs.filter(status=status_param)
+        enquiry_type_param = self.request.query_params.get('enquiry_type')
+        if enquiry_type_param and enquiry_type_param.lower() != 'all':
+            qs = qs.filter(enquiry_type__iexact=enquiry_type_param.strip())
         return qs.order_by('-created_at', '-id')
 
     @extend_schema(
@@ -338,7 +341,7 @@ class EnquiryViewSet(viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="admissions_leads.csv"'
 
         writer = csv.writer(response)
-        writer.writerow(['SL NO', 'CANDIDATE NAME', 'EMAIL', 'PHONE', 'TOPIC / COURSE', 'MESSAGE', 'STATUS', 'RECEIVED DATE'])
+        writer.writerow(['SL NO', 'CANDIDATE NAME', 'EMAIL', 'PHONE', 'TOPIC / COURSE', 'ENQUIRY TYPE', 'FACULTY', 'CUSTOM REQUIREMENT', 'ROUTED TO EMAIL', 'MESSAGE', 'STATUS', 'RECEIVED DATE'])
 
         for idx, enquiry in enumerate(qs, start=1):
             received_formatted = enquiry.created_at.strftime('%d %b %Y %H:%M')
@@ -348,6 +351,10 @@ class EnquiryViewSet(viewsets.ModelViewSet):
                 enquiry.email,
                 enquiry.phone or '',
                 enquiry.topic,
+                enquiry.enquiry_type or '',
+                enquiry.faculty_name or (enquiry.faculty.name if enquiry.faculty else ''),
+                enquiry.custom_requirement or '',
+                enquiry.routed_to_email or '',
                 enquiry.message,
                 enquiry.get_status_display(),
                 received_formatted
