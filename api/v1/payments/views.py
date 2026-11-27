@@ -1289,3 +1289,394 @@ class DownloadPaymentInvoicePdfView(APIView):
         response['Content-Disposition'] = f'{disposition}; filename="{filename}"'
         response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response
+
+
+def _authenticate_download_request(request):
+    """
+    Authenticate via standard DRF user or ?token=<jwt_access_token> query parameter
+    for direct browser downloads. Returns (user, None) or (None, error_response).
+    """
+    user = request.user
+    token = request.query_params.get('token')
+    if user and user.is_authenticated:
+        return user, None
+    if token:
+        try:
+            from rest_framework_simplejwt.tokens import AccessToken
+            from apps.accounts.models import User
+            validated_token = AccessToken(token)
+            user = User.objects.get(id=validated_token['user_id'], is_active=True)
+            return user, None
+        except Exception:
+            return None, Response({'detail': 'Invalid or expired download token.'}, status=status.HTTP_401_UNAUTHORIZED)
+    return None, Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class DownloadPaymentInvoiceExcelView(APIView):
+    """
+    Generates and downloads a styled Tax Invoice Excel (.xlsx) workbook
+    for a single payment transaction or student invoice.
+    Supports ?token=<jwt_access_token> and ?single=1.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['USER SIDE - Stripe Payments & Checkout'],
+        summary="Download Single Payment Tax Invoice Excel (.xlsx)",
+        description="Generates a styled Tax Invoice Excel workbook (.xlsx) with GST breakdown.",
+        parameters=[
+            OpenApiParameter('id', str, OpenApiParameter.PATH, description="Transaction ID, UUID, Session ID, or Receipt Number"),
+            OpenApiParameter('token', str, OpenApiParameter.QUERY, required=False, description="Optional JWT access token for direct browser downloads"),
+            OpenApiParameter('single', str, OpenApiParameter.QUERY, required=False, description="Pass 1 to include only this transaction's line item"),
+        ],
+        responses={200: bytes, 404: OpenApiResponse(description="Transaction not found")}
+    )
+    def get(self, request, id):
+        user, auth_err = _authenticate_download_request(request)
+        if auth_err:
+            return auth_err
+
+        tx, err = resolve_payment_transaction(id, user)
+        if err:
+            return err
+
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            return Response(
+                {'detail': 'openpyxl is not installed on the server. Please install openpyxl>=3.1.2.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        from api.v1.students.views import get_student_invoice_payload
+        student = tx.student
+        payload = get_student_invoice_payload(student, request=request)
+
+        student_name = payload['billed_to']['name'] or student.name or (student.user.display_name if student.user else '') or student.email
+        student_email = payload['billed_to']['email'] or student.email or ''
+        student_phone = payload['billed_to']['phone'] or student.phone or '+44 7867898789'
+        student_location = payload['billed_to']['location'] or student.location or student.city or student.country or '-'
+
+        tx_serializer = PaymentTransactionSerializer()
+        invoice_number = payload['invoice']['invoice_number'] or tx_serializer.get_invoice_number(tx)
+        invoice_date_str = payload['invoice']['issue_date']
+
+        curr_code = str(tx.currency or 'gbp').lower()
+        curr_sym = '£' if curr_code in ('gbp', '£') else ('$' if curr_code in ('usd', '$') else ('€' if curr_code in ('eur', '€') else f"{tx.currency.upper()} "))
+
+        is_single = request.query_params.get('single') == '1'
+        if is_single:
+            total_amount = float(tx.amount)
+            base_amount = round(total_amount / 1.18, 2)
+            gst_amount = round(total_amount - base_amount, 2)
+            cgst_9 = round(gst_amount / 2, 2)
+            sgst_9 = round(gst_amount - cgst_9, 2)
+            item_type_label = 'Course' if tx.item_type == 'course' else 'Resource'
+            item_title = tx.item_title or ('Course Enrollment' if tx.item_type == 'course' else 'Study Resource')
+            line_items_data = [{
+                'description': item_title,
+                'type': item_type_label,
+                'taxable_base': base_amount,
+                'gst_18': gst_amount,
+                'total_amount': total_amount,
+            }]
+        else:
+            total_amount = payload['totals']['total_paid']
+            base_amount = payload['totals']['taxable_base_value']
+            gst_amount = payload['totals']['total_gst_18']
+            cgst_9 = payload['totals']['cgst_9']
+            sgst_9 = payload['totals']['sgst_9']
+            line_items_data = payload['line_items']
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Tax Invoice"
+
+        navy_fill = PatternFill(start_color="0E1B3E", end_color="0E1B3E", fill_type="solid")
+        card_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        thin_side = Side(border_style="thin", color="CBD5E1")
+        cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        # Header
+        ws['A1'] = "Ave Maria Career Guidance Center Ltd."
+        ws['A1'].font = Font(bold=True, size=14, color="0E1B3E")
+        ws['E1'] = "TAX INVOICE"
+        ws['E1'].font = Font(bold=True, size=14, color="B4822B")
+        ws['E1'].alignment = Alignment(horizontal="right")
+
+        ws['A2'] = "Friars House, Manor House Drive, Coventry, CV1 2TE, United Kingdom | Company No.: 16952003"
+        ws['A3'] = "GSTIN: 32AABCA9876C1Z8 | SAC Code: 999293 | admissions@avemariacareer.co.uk"
+        ws['A2'].font = Font(size=9, color="64748B")
+        ws['A3'].font = Font(size=9, color="64748B")
+
+        ws['E2'] = f"Invoice No: {invoice_number}"
+        ws['E3'] = f"Invoice Date: {invoice_date_str}"
+        ws['E2'].font = Font(bold=True, size=10, color="0E1B3E")
+        ws['E2'].alignment = Alignment(horizontal="right")
+        ws['E3'].alignment = Alignment(horizontal="right")
+
+        # Billed To & Order Details
+        ws['A5'] = "BILLED TO"
+        ws['A5'].font = Font(bold=True, size=10, color="0E1B3E")
+        ws['D5'] = "PAYMENT DETAILS"
+        ws['D5'].font = Font(bold=True, size=10, color="0E1B3E")
+
+        ws['A6'] = f"Name: {student_name}"
+        ws['A7'] = f"Email: {student_email}"
+        ws['A8'] = f"Phone: {student_phone}"
+        ws['A9'] = f"Location: {student_location}"
+
+        ws['D6'] = f"Payment Mode: {payload['invoice']['payment_method']}"
+        ws['D7'] = f"Tax Treatment: {payload['invoice']['tax_rate']}"
+        ws['D8'] = f"Status: {payload['invoice']['status']}"
+        ws['D9'] = f"Currency: {curr_code.upper()}"
+
+        # Line items table
+        header_row = 11
+        headers = ["DESCRIPTION", "TYPE", "QTY", f"TAXABLE BASE ({curr_sym})", f"GST 18% ({curr_sym})", f"TOTAL AMOUNT ({curr_sym})"]
+        for col_idx, h in enumerate(headers, start=1):
+            cell = ws.cell(row=header_row, column=col_idx, value=h)
+            cell.font = Font(bold=True, color="FFFFFF", size=10)
+            cell.fill = navy_fill
+            cell.alignment = Alignment(horizontal="right" if col_idx >= 4 else ("center" if col_idx in (2, 3) else "left"))
+            cell.border = cell_border
+
+        cur_row = header_row + 1
+        for item in line_items_data:
+            ws.cell(row=cur_row, column=1, value=item.get('description', '')).border = cell_border
+            c_type = ws.cell(row=cur_row, column=2, value=item.get('type', ''))
+            c_type.alignment = Alignment(horizontal="center")
+            c_type.border = cell_border
+            c_qty = ws.cell(row=cur_row, column=3, value=1)
+            c_qty.alignment = Alignment(horizontal="center")
+            c_qty.border = cell_border
+            for col_idx, key in [(4, 'taxable_base'), (5, 'gst_18'), (6, 'total_amount')]:
+                c = ws.cell(row=cur_row, column=col_idx, value=round(float(item.get(key, 0)), 2))
+                c.number_format = '#,##0.00'
+                c.alignment = Alignment(horizontal="right")
+                c.border = cell_border
+            cur_row += 1
+
+        # Totals summary
+        cur_row += 1
+        totals_rows = [
+            ("Taxable Base Value", base_amount, False),
+            ("CGST (9.0%)", cgst_9, False),
+            ("SGST (9.0%)", sgst_9, False),
+            ("Total 18% GST (Included)", gst_amount, False),
+            (f"Total Amount Paid ({curr_sym})", total_amount, True),
+        ]
+        for label, val, is_bold in totals_rows:
+            lbl_cell = ws.cell(row=cur_row, column=5, value=label)
+            val_cell = ws.cell(row=cur_row, column=6, value=round(float(val), 2))
+            val_cell.number_format = '#,##0.00'
+            val_cell.alignment = Alignment(horizontal="right")
+            lbl_cell.fill = card_fill
+            val_cell.fill = card_fill
+            lbl_cell.border = cell_border
+            val_cell.border = cell_border
+            if is_bold:
+                lbl_cell.font = Font(bold=True, color="0E1B3E")
+                val_cell.font = Font(bold=True, color="0E1B3E")
+            cur_row += 1
+
+        col_widths = [44, 14, 8, 18, 22, 20]
+        for idx, width in enumerate(col_widths, start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+        out = io.BytesIO()
+        wb.save(out)
+        xlsx_bytes = out.getvalue()
+        out.close()
+
+        clean_inv_no = invoice_number.replace('#', '').strip()
+        filename = f"Tax_Invoice_{clean_inv_no}.xlsx"
+        response = HttpResponse(
+            xlsx_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
+
+class ExportPaymentInvoicesExcelView(APIView):
+    """
+    Exports all (for admins) or student's own (for students) payment transactions / invoices
+    as a styled Excel (.xlsx) workbook.
+    Supports ?token=<jwt>, ?status=..., ?item_type=..., ?search=..., ?date_from=..., ?date_to=...
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['USER SIDE - Stripe Payments & Checkout'],
+        summary="Export Payment Invoices / Transactions to Excel (.xlsx)",
+        description="Exports matching payment transactions and GST breakdown as an Excel (.xlsx) workbook.",
+        parameters=[
+            OpenApiParameter('token', str, OpenApiParameter.QUERY, required=False, description="Optional JWT access token for direct browser downloads"),
+            OpenApiParameter('status', str, OpenApiParameter.QUERY, required=False, description="Filter by status: succeeded, pending, failed, cancelled, or all"),
+            OpenApiParameter('item_type', str, OpenApiParameter.QUERY, required=False, description="Filter by item_type: course, resource, or all"),
+            OpenApiParameter('search', str, OpenApiParameter.QUERY, required=False, description="Search by student name/email, item title, or receipt number"),
+            OpenApiParameter('date_from', str, OpenApiParameter.QUERY, required=False, description="Start date YYYY-MM-DD"),
+            OpenApiParameter('date_to', str, OpenApiParameter.QUERY, required=False, description="End date YYYY-MM-DD"),
+        ],
+        responses={200: bytes}
+    )
+    def get(self, request):
+        user, auth_err = _authenticate_download_request(request)
+        if auth_err:
+            return auth_err
+
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            return Response(
+                {'detail': 'openpyxl is not installed on the server. Please install openpyxl>=3.1.2.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        from django.db import models as db_models
+        student = getattr(user, 'student_profile', None)
+        if not student and getattr(user, 'email', None):
+            student = Student.objects.filter(email__iexact=user.email, is_deleted=False).first()
+
+        is_admin = getattr(user, 'is_staff', False) or getattr(user, 'role', None) == 'admin'
+        if not student and not is_admin:
+            qs = PaymentTransaction.objects.none()
+        elif is_admin:
+            qs = PaymentTransaction.objects.select_related('student').all()
+        else:
+            qs = PaymentTransaction.objects.select_related('student').filter(student=student)
+
+        status_param = (request.query_params.get('status') or '').strip().lower()
+        if status_param and status_param != 'all':
+            qs = qs.filter(status=status_param)
+
+        item_type_param = (request.query_params.get('item_type') or '').strip().lower()
+        if item_type_param and item_type_param != 'all':
+            qs = qs.filter(item_type=item_type_param)
+
+        search_param = (request.query_params.get('search') or '').strip()
+        if search_param:
+            qs = qs.filter(
+                db_models.Q(student__name__icontains=search_param) |
+                db_models.Q(student__email__icontains=search_param) |
+                db_models.Q(item_title__icontains=search_param) |
+                db_models.Q(receipt_number__icontains=search_param) |
+                db_models.Q(stripe_session_id__icontains=search_param)
+            )
+
+        date_from = (request.query_params.get('date_from') or '').strip()
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = (request.query_params.get('date_to') or '').strip()
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        qs = qs.order_by('-created_at', '-id')
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Invoices & Transactions"
+
+        navy_fill = PatternFill(start_color="0E1B3E", end_color="0E1B3E", fill_type="solid")
+        thin_side = Side(border_style="thin", color="CBD5E1")
+        cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        headers = [
+            "SL NO", "INVOICE NUMBER", "TRANSACTION UUID", "STUDENT NAME",
+            "STUDENT EMAIL", "ITEM TYPE", "ITEM TITLE", "TAXABLE BASE",
+            "CGST (9%)", "SGST (9%)", "GST (18%)", "TOTAL AMOUNT",
+            "CURRENCY", "STATUS", "PAYMENT DATE", "STRIPE SESSION ID"
+        ]
+        for col_idx, h in enumerate(headers, start=1):
+            c = ws.cell(row=1, column=col_idx, value=h)
+            c.font = Font(bold=True, color="FFFFFF", size=10)
+            c.fill = navy_fill
+            c.alignment = Alignment(horizontal="center" if col_idx == 1 else "left")
+            c.border = cell_border
+
+        tx_serializer = PaymentTransactionSerializer()
+        total_base = 0.0
+        total_cgst = 0.0
+        total_sgst = 0.0
+        total_gst = 0.0
+        total_gross = 0.0
+
+        row_idx = 2
+        for idx, tx in enumerate(qs, start=1):
+            amount = float(tx.amount or 0)
+            base = round(amount / 1.18, 2)
+            gst = round(amount - base, 2)
+            cgst = round(gst / 2, 2)
+            sgst = round(gst - cgst, 2)
+
+            total_base += base
+            total_cgst += cgst
+            total_sgst += sgst
+            total_gst += gst
+            total_gross += amount
+
+            dt = tx.completed_at or tx.created_at
+            dt_str = dt.strftime('%d %b %Y %H:%M') if dt else ''
+            inv_no = tx_serializer.get_invoice_number(tx)
+
+            row_vals = [
+                idx,
+                inv_no,
+                str(tx.uuid),
+                tx.student.name if tx.student else '',
+                tx.student.email if tx.student else (tx.stripe_customer_email or ''),
+                tx.get_item_type_display(),
+                tx.item_title or '',
+                base,
+                cgst,
+                sgst,
+                gst,
+                amount,
+                (tx.currency or 'gbp').upper(),
+                tx.get_status_display(),
+                dt_str,
+                tx.stripe_session_id or '',
+            ]
+            for col_idx, val in enumerate(row_vals, start=1):
+                c = ws.cell(row=row_idx, column=col_idx, value=val)
+                c.border = cell_border
+                if col_idx in (8, 9, 10, 11, 12):
+                    c.number_format = '#,##0.00'
+                    c.alignment = Alignment(horizontal="right")
+                elif col_idx == 1:
+                    c.alignment = Alignment(horizontal="center")
+            row_idx += 1
+
+        # Totals row
+        if row_idx > 2:
+            ws.cell(row=row_idx, column=7, value="TOTAL").font = Font(bold=True, color="0E1B3E")
+            for col_idx, val in [(8, total_base), (9, total_cgst), (10, total_sgst), (11, total_gst), (12, total_gross)]:
+                c = ws.cell(row=row_idx, column=col_idx, value=round(val, 2))
+                c.font = Font(bold=True, color="0E1B3E")
+                c.number_format = '#,##0.00'
+                c.alignment = Alignment(horizontal="right")
+                c.border = cell_border
+
+        col_widths = [8, 18, 38, 24, 28, 18, 32, 15, 13, 13, 13, 15, 11, 13, 20, 32]
+        for idx, width in enumerate(col_widths, start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+        out = io.BytesIO()
+        wb.save(out)
+        xlsx_bytes = out.getvalue()
+        out.close()
+
+        response = HttpResponse(
+            xlsx_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="Avemaria_Invoices_Export.xlsx"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
